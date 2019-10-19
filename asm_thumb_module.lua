@@ -67,7 +67,7 @@ function write_biz_addr(addr, value, size)
 		-- dont touch BIOS
 		-- write_memory(addr, value, "BIOS")
 	elseif addr < 0x03000000 and addr > 0x02000000 then
-		destination = read_memory(addr - 0x02000000,"EWRAM")
+		write_memory(addr - 0x02000000, value, "EWRAM")
 	elseif addr < 0x04000000 and addr > 0x03000000 then
 		write_memory(addr - 0x03000000, value, "IWRAM")
 	elseif addr < 0x05000000 and addr > 0x04000000 then
@@ -1061,7 +1061,7 @@ function thumb_format6(Rd, Word8, registers)
 	return temp_array, return_string
 end
 
-function thumb_format7(L, B, Ro, Rb, Rd, register, definition)
+function thumb_format7(L, B, Ro, Rb, Rd, registers, definition)
 	--For all other formats, you can just fake it by ignore temp_array.
 	--So we make a "definition" flag so that if its set, we dont write anything to memory
 	--That way, we won't mess things up (probably)
@@ -1092,7 +1092,7 @@ function thumb_format7(L, B, Ro, Rb, Rd, register, definition)
 	return temp_array, return_string
 end
 
-function thumb_format8(H, S, Ro, Rb, Rd, register, definition)
+function thumb_format8(H, S, Ro, Rb, Rd, registers, definition)
 	--For all other formats, you can just fake it by ignore temp_array.
 	--So we make a "definition" flag so that if its set, we dont write anything to memory
 	--That way, we won't mess things up (probably)
@@ -1123,7 +1123,7 @@ function thumb_format8(H, S, Ro, Rb, Rd, register, definition)
 	return temp_array, return_string
 end
 
-function thumb_format9(B, L, Offset5, Rb, Rd, definition)
+function thumb_format9(B, L, Offset5, Rb, Rd, registers, definition)
 	--For all other formats, you can just fake it by ignore temp_array.
 	--So we make a "definition" flag so that if its set, we dont write anything to memory
 	--That way, we won't mess things up (probably)
@@ -1132,7 +1132,7 @@ function thumb_format9(B, L, Offset5, Rb, Rd, definition)
 	local OP = (B * 2) + L	--Left shift B once, then add L to combine them
 	local return_string = "Format 9: load/store with immediate offset: "
 	local end_string = " Rd, [Rb, #Imm]\nRd: "..Rd.." ("..hex(registers[Rd])..") Rb: "..Rb.." ("..hex(registers[Rb])..") Imm: "..Offset5
-	Offset5 = Offset5 * 4	--Shift this to the left by 2
+	Offset5 = B == 0 and Offset5 * 4 or Offset5	--Shift this to the left by 2 if B == 0 (word access)
 	if OP == 0 then
 	--Calculate the target address by adding together the value in Rb and Imm. Store the contents of Rd at the address.
 		if definition ~= true then STR(registers[Rd], registers[Rb], Offset5) end
@@ -1155,7 +1155,7 @@ function thumb_format9(B, L, Offset5, Rb, Rd, definition)
 	return temp_array, return_string
 end
 
-function thumb_format10(L, Offset5, Rb, Rd, register, definition)
+function thumb_format10(L, Offset5, Rb, Rd, registers, definition)
 	--For all other formats, you can just fake it by ignore temp_array.
 	--So we make a "definition" flag so that if its set, we dont write anything to memory
 	--That way, we won't mess things up (probably)
@@ -1256,7 +1256,7 @@ function thumb_format14(L, R, RList, registers, definition)
 			if i < 7 then 
 				if bit.rshift(RList, i) % 2 == 1 then end_string = end_string..i..", " end
 			else
-				if bit.rshift(RList, i) % 2 == 1 then end_string = end_string..i.. end
+				if bit.rshift(RList, i) % 2 == 1 then end_string = end_string..i end
 			end
 		end
 		end_string = (R == 1) and end_string..end_string2 or end_string.."}"
@@ -1291,7 +1291,7 @@ function thumb_format15(L, Rb, Rlist, registers, definition)
 			if i < 7 then 
 				if bit.rshift(RList, i) % 2 == 1 then end_string = end_string..i..", " end
 			else
-				if bit.rshift(RList, i) % 2 == 1 then end_string = end_string..i.. end
+				if bit.rshift(RList, i) % 2 == 1 then end_string = end_string..i end
 			end
 		end
 		end_string = end_string.."}"
@@ -1440,9 +1440,9 @@ function asm_thumb_module.do_thumb_instr(instruction, registers, definition)
 	-- local Rn = Ro
 		local bit_10_9 = bit.rshift(bit.band(0x600,instruction),9)	--binary 0110 0000 0000
 		if (bit_12_11 == 3) then 
-			temp_array, return_string = thumb_format2(bit_10_9, Rd, Rs, Ro, temp_array)
+			temp_array, return_string = thumb_format2(bit_10_9, Rd, Rs, Ro, registers)
 		else
-			temp_array, return_string = thumb_format1(bit_12_11, Rd, Rs, Offset5, temp_array)
+			temp_array, return_string = thumb_format1(bit_12_11, Rd, Rs, Offset5, registers)
 		end
 	elseif bits_3 == 1 then --bit pattern 001
 	--Format 3
@@ -1463,28 +1463,29 @@ function asm_thumb_module.do_thumb_instr(instruction, registers, definition)
 		elseif bit_12_11_10 == 2 or bit_12_11_10 == 3 then	--binary 010
 		--Format 6: PC-relative load
 		--Don't increment PC here
-			temp_array, return_string = thumb_format6(Rd2, Word8, registers)
+		--Word8 == Offset8
+			temp_array, return_string = thumb_format6(Rd2, Offset8, registers)
 		elseif bit_12_11_10 >= 4 and bit_12_11_10 <= 7 then	--bit12 is 1
 			--If bit 9 == 0, format 7. Else format 8
 			--Format 7: load/store with register offset
 			--Format 8: load/store sign-extended byte/halfword
 			local bit9 = bit.check(instruction,9) and 1 or 0
 			if (bit9 == 0) then
-				temp_array, return_string = thumb_format7(bit11, bit10, Ro, Rb1, Rd, register, definition)
+				temp_array, return_string = thumb_format7(bit11, bit10, Ro, Rb1, Rd, registers, definition)
 			else
-				temp_array, return_string = thumb_format8(bit11, bit10, Ro, Rb1, Rd, register, definition)
+				temp_array, return_string = thumb_format8(bit11, bit10, Ro, Rb1, Rd, registers, definition)
 			end
 		end
 	elseif bits_3 == 3 then --bit pattern 011
 		-- Format 9: load/store with immediate offset
-		temp_array, return_string = thumb_format9(bit12, bit11, Offset5, Rb1, Rd, definition)
+		temp_array, return_string = thumb_format9(bit12, bit11, Offset5, Rb1, Rd, registers, definition)
 	elseif bits_3 == 4 then --bit pattern 100
 		--Check bit 12 to see if we use format 10 or 11. 0 for format 10, 1 for format 11
 		--Format 10: load/store halfword
 		--Format 11: SP-relative load/store
 		-- local Word8 = Offset8	--binary 0111 1111
 		if (bit12 == 0) then
-			temp_array, return_string = thumb_format10(bit11, Offset5, Rb1, Rd, register, definition)
+			temp_array, return_string = thumb_format10(bit11, Offset5, Rb1, Rd, registers, definition)
 		else
 			temp_array, return_string = thumb_format11(bit11, Rd2, Offset8, registers, definition)
 		end	
