@@ -1045,7 +1045,7 @@ function thumb_format5(OP, H1, H2, Rs, Rd, registers)
 		temp_array[15] = BX(registers[Hs])
 		return_string = return_string.."BX Hs\nHs: "..Hs.." ("..hex(registers[Hs])..")"
 	else
-		return_string = "Format 5 error 2"	--14, 15 are undefined
+		return_string = "Format 5 error 4"	--14, 15 are undefined
 	end
 	return temp_array, return_string
 end
@@ -1279,7 +1279,7 @@ function thumb_format14(L, R, RList, registers, definition)
 	return temp_array, return_string
 end
 
-function thumb_format15(L, Rb, Rlist, registers, definition)
+function thumb_format15(L, Rb, RList, registers, definition)
 	local temp_array = registers
 	local return_string = "Format 15: multiple load/store: "
 	local end_string = "\nBase: "..Rb.." ("..hex(registers[Rb])..")"
@@ -1314,59 +1314,59 @@ function thumb_format16(cond, Soffset8, registers)
 	local return_string = "Format 16: conditional branch: "
 	if cond == 0 then
 	--Branch if Z set (equal)
-		temp_array[15] = BEQ(Word8, temp_array[15], CPSR)
+		temp_array[15] = BEQ(Soffset8, temp_array[15], CPSR)
 		return_string = return_string.."BEQ (branch if z == 1)"
 	elseif cond ==  1 then
 	--Branch if Z clear (not equal)
-		temp_array[15] = BNE(Word8, temp_array[15], CPSR)
+		temp_array[15] = BNE(Soffset8, temp_array[15], CPSR)
 		return_string = return_string.."BNE (branch if z == 0)"
 	elseif cond == 2 then
 	--Branch if C set (unsigned higher or same)
-		temp_array[15] = BCS(Word8, temp_array[15], CPSR)
+		temp_array[15] = BCS(Soffset8, temp_array[15], CPSR)
 		return_string = return_string.."BCS (branch if c == 1)"
 	elseif cond == 3 then
 	--Branch if C clear (unsigned lower)
-		temp_array[15] = BCC(Word8, temp_array[15], CPSR)
+		temp_array[15] = BCC(Soffset8, temp_array[15], CPSR)
 		return_string = return_string.."BCC (branch if c == 0)"
 	elseif cond == 4 then
 	--Branch if N set (negative)
-		temp_array[15] = BMI(Word8, temp_array[15], CPSR)
+		temp_array[15] = BMI(Soffset8, temp_array[15], CPSR)
 		return_string = return_string.."BMI (branch if n == 1)"
 	elseif cond == 5 then
 	--Branch if N clear (positive or zero)
-		temp_array[15] = BPL(Word8, temp_array[15], CPSR)
+		temp_array[15] = BPL(Soffset8, temp_array[15], CPSR)
 		return_string = return_string.."BPL (branch if n == 0)"
 	elseif cond == 6 then
 	--Branch if V set (overflow)
-		temp_array[15] = BVS(Word8, temp_array[15], CPSR)
+		temp_array[15] = BVS(Soffset8, temp_array[15], CPSR)
 		return_string = return_string.."BVS (branch if v == 1)"
 	elseif cond == 7 then
 	--Branch if V clear (no overflow)
-		temp_array[15] = BVC(Word8, temp_array[15], CPSR)
+		temp_array[15] = BVC(Soffset8, temp_array[15], CPSR)
 		return_string = return_string.."BVC (branch if v == 0)"
 	elseif cond == 8 then
 	--Branch if C set and Z clear (unsigned higher)
-		temp_array[15] = BHI(Word8, temp_array[15], CPSR)
+		temp_array[15] = BHI(Soffset8, temp_array[15], CPSR)
 		return_string = return_string.."BHI (branch if c == 1 and z == 0)"
 	elseif cond == 9 then
 	--Branch if C clear or Z set (unsigned lower or same)
-		temp_array[15] = BLS(Word8, temp_array[15], CPSR)
+		temp_array[15] = BLS(Soffset8, temp_array[15], CPSR)
 		return_string = return_string.."BLS (branch if c == 0 and z == 1)"
 	elseif cond == 10 then
 	--Branch if N set and V set, or N clear and V clear (greater or equal)
-		temp_array[15] = BGE(Word8, temp_array[15], CPSR)
+		temp_array[15] = BGE(Soffset8, temp_array[15], CPSR)
 		return_string = return_string.."BGE (branch if n == v)"
 	elseif cond == 11 then
 	--Branch if N set and V clear, or N clear and V set (less than)
-		temp_array[15] = BLT(Word8, temp_array[15], CPSR)
+		temp_array[15] = BLT(Soffset8, temp_array[15], CPSR)
 		return_string = return_string.."BLT (branch if n != v)"
 	elseif cond == 12 then
 	--Branch if Z clear, and either N set and V set or N clear and V clear (greater than)
-		temp_array[15] = BGT(Word8, temp_array[15], CPSR)
+		temp_array[15] = BGT(Soffset8, temp_array[15], CPSR)
 		return_string = return_string.."BGT (branch if z == 0 and n == v)"
 	elseif cond == 13 then
 	-- Branch if Z set, or N set and V clear, or N clear and V set (less than or equal)
-		temp_array[15] = BLE(Word8, temp_array[15], CPSR)
+		temp_array[15] = BLE(Soffset8, temp_array[15], CPSR)
 		return_string = return_string.."BLE (branch if z == 1 or n != v)"
 	else
 		return_string = "Format 16 error"
@@ -1457,7 +1457,7 @@ function asm_thumb_module.do_thumb_instr(instruction, registers, definition)
 		--Format 5
 		--Don't set condition codes on R15/PC!
 		--Hd/Hs are used nowhere else, so assign them herelocal h1 = bit7
-			local bit_9_8 = bit.rshift(bit.band(0x300,instruction),6)	--binary 0011 0000 0000
+			local bit_9_8 = bit.rshift(bit.band(0x300,instruction),8)	--binary 0011 0000 0000
 			local h2 = bit.check(instruction,6) and 1 or 0
 			temp_array, return_string = thumb_format5(bit_9_8, bit7, h2, Rs, Rd, registers)
 		elseif bit_12_11_10 == 2 or bit_12_11_10 == 3 then	--binary 010
@@ -1510,19 +1510,20 @@ function asm_thumb_module.do_thumb_instr(instruction, registers, definition)
 	elseif bits_3 == 6 then --bit pattern 101
 		if bit12 == 0 then
 		--Format 15: multiple load/store
-		-- local Rb2 = Rd2
+		-- local Rb2 = Rd2 bits 10_9_8
 		-- local RList = Offset8	--binary 0111 1111
-			temp_array, return_string = thumb_format15(bit11, Rd2, Offset8, registers)
+			temp_array, return_string = thumb_format15(bit11, Rd2, Offset8, registers, definition)
 		else --bit12 is 1
 		--Check if bits 11, 10, 9, 8 are all 1 (ie. cond == 15) to see if we use format 16 or 17. 15 for format 17, all else for format 16
 		--Format 16: conditional branch
 		--Format 17: software interrupt
 		-- local Value8 = Offset8	--binary 0111 1111
 		-- local Soffset8 = Offset8	--binary 0111 1111
-			if (cond == 15) then
+			local bit_11_10_9_8 = bit.rshift(bit.band(0xF00,instruction),8)	--binary 1111 0000 0000
+			if (bit_11_10_9_8 == 15) then
 				temp_array, return_string = thumb_format17(Offset8, registers)
 			else
-				temp_array, return_string = thumb_format16(cond, Offset8, registers)
+				temp_array, return_string = thumb_format16(bit_11_10_9_8, Offset8, registers)
 			end
 		end
 	elseif bits_3 == 7 then --bit pattern 111
