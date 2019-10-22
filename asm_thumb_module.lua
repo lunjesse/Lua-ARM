@@ -1047,6 +1047,7 @@ function thumb_format5(OP, H1, H2, Rs, Rd, registers)
 	else
 		return_string = "Format 5 error 4"	--14, 15 are undefined
 	end
+	temp_array[15] = bit.band(0xFFFFFFFE,temp_array[15])	--set last bit to 0 for register 15 in case it gets set by MOV
 	return temp_array, return_string
 end
 
@@ -1547,7 +1548,6 @@ function asm_thumb_module.get_thumb_instr(instruction, registers)
 	local temp_array = {}
 	local return_string = ""
 	temp_array, return_string = asm_thumb_module.do_thumb_instr(instruction, registers, true)
-	console.log(return_string)
 	return return_string
 end
 --[[
