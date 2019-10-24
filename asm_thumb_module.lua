@@ -1,6 +1,7 @@
 local hex = bizstring.hex
 local asm_thumb_module = {}
 
+
 function set_flag(CPSR, N, Z, C, V, Q)
 	--CPSR is status register
 	--Usage: set_flag(r,1,1,1,1) example
@@ -96,39 +97,131 @@ end
 function LSL(Rs, Offset, CPSR)
 --Imagine that the shift happens with a double-wide register, and then at the end we cut off the lower 32 bits to get the new value, and then the next bit onward is the carry flag
 --diagram https://www.csee.umbc.edu/courses/undergraduate/313/spring04/burt_katz/lectures/Lect06/shift.html
-	--BizHawk mods the offset if it's > 32; we want to instead make it set to 0
-	local result = Offset < 32 and bit.lshift(Rs, Offset) or 0
+	--There are 2 cases. LSL immediate offset of 5 bits, and LSL register offset using the least significant byte (bits 7 to 0). 
+	--We first mask the Offset into an 8 bit number; this won't change anything if it was the 5 bit offset
+	Offset = bit.band(0xFF, Offset)
+	local result = nil
+	local C = nil
+	--LSL immediate
+	if Offset == 0 then
+		C = bit.check(CPSR, 29) and 1 or 0	--C flag unaffected if 0 shift
+		result = Rs
+	elseif Offset < 32 then 
+		C = bit.check(Rs, 32-Offset) and 1 or 0
+		result = bit.lshift(Rs, Offset)
+	--LSL register
+	elseif Offset == 32 then
+		C = bit.check(Rs, 0) and 1 or 0
+		result = 0
+	else	--Greater than 32
+		C = 0
+		result = 0
+	end
 	local N = bit.check(result, 31) and 1 or 0
 	local Z = (result == 0) and 1 or 0
-	local C = bit.check(Rs, 32-Offset) and 1 or 0
 	--V, Q flag unchanged
 	local V = bit.check(CPSR, 28) and 1 or 0
 	local Q = bit.check(CPSR, 27) and 1 or 0
 	return result, set_flag(CPSR, N, Z, C, V, Q)
 end
 
-function LSR(Rs, Offset, CPSR)
-	local result = Offset < 32 and bit.rshift(Rs, Offset) or 0
+function LSR1(Rs, Offset, CPSR)
+	--There are 2 cases. LSR immediate offset of 5 bits, and LSR register offset using the least significant byte (bits 7 to 0). 
+	--In this case, it's immediate offset. An offset of 0 indicates logical right shift of 32 rather than 0; 
+	--instead, LSR #0 is converted to LSL #0. This applies to ASR and ROR as well
+	local result = nil
+	local C = nil
+	if Offset == 0 then
+		C = bit.check(Rs, 31) and 1 or 0
+		result = 0
+	else
+		C = bit.check(Rs, Offset-1) and 1 or 0
+		result = bit.rshift(Rs, Offset)
+	end
 	local N = bit.check(result,31) and 1 or 0
 	local Z = (result == 0) and 1 or 0
-	local C = 0
-	if Offset-1 >= 0 then
-		C = bit.check(Rs, Offset-1) and 1 or 0
-	end
 	--V, Q flag unchanged
 	local V = bit.check(CPSR, 28) and 1 or 0
 	local Q = bit.check(CPSR, 27) and 1 or 0
 	return result, set_flag(CPSR, N, Z, C, V, Q)
 end
 
-function ARS(Rs, Offset, CPSR)
-	local result = Offset < 32 and bit.arshift(Rs, Offset) or 0
+function LSR2(Rd, Rs, CPSR)
+	--There are 2 cases. LSR immediate offset of 5 bits, and LSR register offset using the least significant byte (bits 7 to 0). 
+	--In this case, it's register offset. Unlike LSR1, this does allow LSR #0 to occur.
+	--We first mask the Offset (Rs, in this case) into an 8 bit number
+	Rs = bit.band(0xFF, Rs)
+	local result = nil
+	local C = nil
+	if Rs == 0 then
+		C = bit.check(CPSR, 29) and 1 or 0	--C flag unaffected if 0 shift
+		result = Rd
+	elseif Rs < 32 then
+		C = bit.check(Rd, Rs-1) and 1 or 0
+		result = bit.rshift(Rd, Rs)
+	elseif Rs == 32 then
+		C = bit.check(Rd, 31) and 1 or 0
+		result = 0
+	else	--Greater than 32
+		C = 0
+		result = 0
+	end
 	local N = bit.check(result,31) and 1 or 0
 	local Z = (result == 0) and 1 or 0
-	local C = 0
-	if Offset-1 >= 0 then
-		C = bit.check(Rs, Offset-1) and 1 or 0
+	--V, Q flag unchanged
+	local V = bit.check(CPSR, 28) and 1 or 0
+	local Q = bit.check(CPSR, 27) and 1 or 0
+	return result, set_flag(CPSR, N, Z, C, V, Q)
+end
+
+function ASR1(Rm, Offset, CPSR)
+	--There are 2 cases. ASR immediate offset of 5 bits, and ASR register offset using the least significant byte (bits 7 to 0). 
+	--In this case, it's immediate offset. An offset of 0 indicates arithmetic right shift of 32 rather than 0; 
+	--instead, ASR #0 is converted to LSL #0. This applies to LSR and ROR as well
+	local result = nil
+	local C = nil
+	if Offset == 0 then
+		C = bit.check(Rm, 31) and 1 or 0
+		if C == 0 then
+			result = 0
+		else	--bit 31 of Rm is 1
+			result = 0xFFFFFFFF
+		end
+	else
+		C = bit.check(Rm, Offset-1) and 1 or 0
+		result = bit.arshift(Rs, Offset)
 	end
+	local N = bit.check(result,31) and 1 or 0
+	local Z = (result == 0) and 1 or 0
+	--V, Q flag unchanged
+	local V = bit.check(CPSR, 28) and 1 or 0
+	local Q = bit.check(CPSR, 27) and 1 or 0
+	return result, set_flag(CPSR, N, Z, C, V, Q)
+end
+
+function ASR2(Rd, Rs, CPSR)
+	--There are 2 cases. ASR immediate offset of 5 bits, and ASR register offset using the least significant byte (bits 7 to 0). 
+	--In this case, it's register offset. Unlike ASR1, this does allow ASR #0 to occur.
+	--We first mask the Offset (Rs, in this case) into an 8 bit number
+	Rs = bit.band(0xFF, Rs)
+	local result = nil
+	local C = nil
+	if Rs == 0 then
+		C = bit.check(CPSR, 29) and 1 or 0	--C flag unaffected if 0 shift
+		result = Rd
+	elseif Rs < 32 then
+		C = bit.check(Rd, Rs-1) and 1 or 0
+		result = bit.arshift(Rs, Rs)
+	else --Greater than 32
+		C = bit.check(Rd, 31) and 1 or 0
+		if C == 0 then
+			result = 0
+		else	--bit 31 of Rd is 1
+			result = 0xFFFFFFFF
+		end
+	end
+	local N = bit.check(result,31) and 1 or 0
+	local Z = (result == 0) and 1 or 0
 	--V, Q flag unchanged
 	local V = bit.check(CPSR, 28) and 1 or 0
 	local Q = bit.check(CPSR, 27) and 1 or 0
@@ -308,9 +401,18 @@ function MVN(Rs, CPSR)
 	return bit.bnot(Rs)
 end
 
-function BX(Rs)
---don't set flags
-	return bit.band(0xFFFFFFFE,Rs)
+function BX(Rs, CPSR)
+--Implement "Entering THUMB state"
+--Bit 5 of CPSR is the THUMB flag; 0 for ARM, 1 for THUMB
+	CPSR = (Rs % 2 == 1) and bit.set(CPSR, 5) or bit.clear(CPSR, 5)
+--[[From manual:
+When R15 is read, bit[0] is zero and bits[31:1] contain the PC. When R15 is written, bit[0] is IGNORED and
+bits[31:1] are written to the PC. Depending on how it is used, the value of the PC is either the address of the
+instruction plus 4 or is UNPREDICTABLE.
+
+Based on the trace log, it seems it's always zero'd
+]]--
+	return bit.band(0xFFFFFFFE,Rs), CPSR
 end
 
 
@@ -835,7 +937,7 @@ function thumb_format1(OP, Rd, Rs, Offset5, registers)
 		return_string = return_string.."LSL"..end_string
 	elseif OP == 1 then
 	--Perform logical shift right on Rs by a 5-bit immediate value and store the result in Rd.
-		temp_array[Rd], temp_array.CPSR = LSR(registers[Rs], Offset5, CPSR)
+		temp_array[Rd], temp_array.CPSR = LSR1(registers[Rs], Offset5, CPSR)
 		return_string = return_string.."LSR"..end_string
 	elseif OP == 2 then
 	--Perform arithmetic shift right on Rs by a 5-bit immediate value and store the result in Rd.
@@ -922,7 +1024,7 @@ function thumb_format4(OP, Rs, Rd, registers)
 		return_string = return_string.."LSL"..end_string
 	elseif OP == 3  then
 	--Rd := Rd >> Rs
-		temp_array[Rd], temp_array.CPSR = LSR(registers[Rd], registers[Rs], CPSR)
+		temp_array[Rd], temp_array.CPSR = LSR2(registers[Rd], registers[Rs], CPSR)
 		return_string = return_string.."LSR"..end_string
 	elseif OP == 4  then
 	--Rd := Rd ASR Rs
@@ -1038,11 +1140,11 @@ function thumb_format5(OP, H1, H2, Rs, Rd, registers)
 		return_string = return_string.."MOV"..end_string3
 	elseif OP == 12 then
 	--Perform branch (plus optional state change) to address in a register in the range 0-7.
-		temp_array[15] = BX(registers[Rs])
+		temp_array[15], temp_array.CPSR = BX(registers[Rs], CPSR)
 		return_string = return_string.." BX Rs\nRs: "..Rs.." ("..hex(registers[Rs])..")"
 	elseif OP == 13 then
 	--Perform branch (plus optional state change) to address in a register in the range 8-15.
-		temp_array[15] = BX(registers[Hs])
+		temp_array[15], temp_array.CPSR = BX(registers[Hs], CPSR)
 		return_string = return_string.."BX Hs\nHs: "..Hs.." ("..hex(registers[Hs])..")"
 	else
 		return_string = "Format 5 error 4"	--14, 15 are undefined
@@ -1404,7 +1506,7 @@ function thumb_format19(H, Offset, registers)
 end
 
 
-function asm_thumb_module.do_thumb_instr(instruction, registers, definition)
+function asm_thumb_module.do_instr(instruction, registers, definition)
 	--For all other formats, you can just fake it by ignore temp_array.
 	--So we make a "definition" flag so that if its set, we dont write anything to memory
 	--That way, we won't mess things up (probably)
@@ -1431,8 +1533,8 @@ function asm_thumb_module.do_thumb_instr(instruction, registers, definition)
 	local Offset8 = bit.band(0xFF,instruction)	--binary 0111 1111
 	local temp_array = {}
 	local return_string = ""
-	local CPSR = registers.CPSR
-	local C = bit.check(CPSR, 29) and 1 or 0
+	-- local CPSR = registers.CPSR
+	-- local C = bit.check(CPSR, 29) and 1 or 0
 	--Cannot use ternary operator trick "cond and a or b" to return 2 values sadly
 	if bits_3 == 0 then --bit pattern 000
 	--Format 2 has bits 12 and 11 == 0b11 (3 in decimal). So if they're not 3, use format 1 instead
@@ -1547,7 +1649,7 @@ end
 function asm_thumb_module.get_thumb_instr(instruction, registers)
 	local temp_array = {}
 	local return_string = ""
-	temp_array, return_string = asm_thumb_module.do_thumb_instr(instruction, registers, true)
+	temp_array, return_string = asm_thumb_module.do_instr(instruction, registers, true)
 	return return_string
 end
 --[[
