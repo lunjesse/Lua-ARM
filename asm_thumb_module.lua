@@ -1,83 +1,6 @@
 local hex = bizstring.hex
+local utility = require('utility')
 local asm_thumb_module = {}
-
-
-function set_flag(CPSR, N, Z, C, V, Q)
-	--CPSR is status register
-	--Usage: set_flag(r,1,1,1,1) example
-	--[[https://nintenfo.github.io/repository/webmirrors/techinfo.html
-	Bit   Expl.
-  31    N - Sign Flag       (0=Not Signed, 1=Signed)               ;\
-  30    Z - Zero Flag       (0=Not Zero, 1=Zero)                   ; Condition
-  29    C - Carry Flag      (0=Borrow/No Carry, 1=Carry/No Borrow) ; Code Flags
-  28    V - Overflow Flag   (0=No Overflow, 1=Overflow)            ;/
-  27    Q - Sticky Overflow (1=Sticky Overflow, ARMv5TE and up only)
-  26-8  Reserved            (For future use) - Do not change manually!
-  7     I - IRQ disable     (0=Enable, 1=Disable)                     ;\
-  6     F - FIQ disable     (0=Enable, 1=Disable)                     ; Control
-  5     T - State Bit       (0=ARM, 1=THUMB) - Do not change manually!; Bits
-  4-0   M4-M0 - Mode Bits   (See below)                               ;/
-	]]--
-	local temp = CPSR
-	-- console.log("Now: "..bizstring.binary(temp))
-	if N > 0 then temp = bit.set(temp,31) else temp = bit.clear(temp,31) end
-	if Z > 0 then temp = bit.set(temp,30) else temp = bit.clear(temp,30) end
-	if C > 0 then temp = bit.set(temp,29) else temp = bit.clear(temp,29) end
-	if V > 0 then temp = bit.set(temp,28) else temp = bit.clear(temp,28) end
-	if Q > 0 then temp = bit.set(temp,27) else temp = bit.clear(temp,27) end
-	-- console.log("N: "..N.." Z: "..Z.." C: "..C.." V: "..V.." Q: "..Q)
-	-- console.log("After: "..bizstring.binary(temp))
-	return temp
-end
-
---since bizhawk hates the 0x8/0x3/0x4 part, remove it
-function load_biz_addr(addr, size)
-	local destination
-	local read_memory = memory.read_u32_le	--default
-	if size == 8 then
-		read_memory = memory.read_u8
-	elseif size == 16 then
-		read_memory = memory.read_u16_le
-	elseif size == 24 then
-		read_memory = memory.read_u24_le
-	end
-	if addr < 0x01000000 and addr > 0x00000000 then
-		destination = read_memory(addr, "BIOS")
-	elseif addr < 0x03000000 and addr > 0x02000000 then
-		destination = read_memory(addr - 0x02000000,"EWRAM")
-	elseif addr < 0x04000000 and addr > 0x03000000 then
-		destination = read_memory(addr - 0x03000000,"IWRAM")
-	elseif addr < 0x05000000 and addr > 0x04000000 then
-		destination = read_memory(addr - 0x04000000,"System Bus")
-	elseif addr < 0x09000000 and addr > 0x08000000 then
-		destination = read_memory(addr - 0x08000000,"ROM")
-	end
-	return destination
-end
-
-function write_biz_addr(addr, value, size)
-	local write_memory = memory.write_u32_le	--default
-	if size == 8 then
-		write_memory = memory.write_u8
-	elseif size == 16 then
-		write_memory = memory.write_u16_le
-	elseif size == 24 then
-		write_memory = memory.write_u24_le
-	end
-	if addr < 0x01000000 and addr > 0x00000000 then
-		-- dont touch BIOS
-		-- write_memory(addr, value, "BIOS")
-	elseif addr < 0x03000000 and addr > 0x02000000 then
-		write_memory(addr - 0x02000000, value, "EWRAM")
-	elseif addr < 0x04000000 and addr > 0x03000000 then
-		write_memory(addr - 0x03000000, value, "IWRAM")
-	elseif addr < 0x05000000 and addr > 0x04000000 then
-		write_memory(addr - 0x04000000, value, "System Bus")
-	elseif addr < 0x09000000 and addr > 0x08000000 then
-		--dont write in ROM
-		-- write_memory(addr - 0x08000000, value, "ROM")
-	end
-end
 
 function asm_thumb_module.pc_to_inst(pc)
 	--given program counter return instruction
@@ -91,141 +14,7 @@ function asm_thumb_module.pc_to_inst(pc)
 		address = address - 4
 	end
 	size = pc > 0x08000000 and 16 or 32	--if in other locations, its 32 bit ARM. Else 16 bit THUMB
-	return load_biz_addr(address,size)
-end
-
-function LSL(Rs, Offset, CPSR)
---Imagine that the shift happens with a double-wide register, and then at the end we cut off the lower 32 bits to get the new value, and then the next bit onward is the carry flag
---diagram https://www.csee.umbc.edu/courses/undergraduate/313/spring04/burt_katz/lectures/Lect06/shift.html
-	--There are 2 cases. LSL immediate offset of 5 bits, and LSL register offset using the least significant byte (bits 7 to 0). 
-	--We first mask the Offset into an 8 bit number; this won't change anything if it was the 5 bit offset
-	Offset = bit.band(0xFF, Offset)
-	local result = nil
-	local C = nil
-	--LSL immediate
-	if Offset == 0 then
-		C = bit.check(CPSR, 29) and 1 or 0	--C flag unaffected if 0 shift
-		result = Rs
-	elseif Offset < 32 then 
-		C = bit.check(Rs, 32-Offset) and 1 or 0
-		result = bit.lshift(Rs, Offset)
-	--LSL register
-	elseif Offset == 32 then
-		C = bit.check(Rs, 0) and 1 or 0
-		result = 0
-	else	--Greater than 32
-		C = 0
-		result = 0
-	end
-	local N = bit.check(result, 31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, set_flag(CPSR, N, Z, C, V, Q)
-end
-
-function LSR1(Rs, Offset, CPSR)
-	--There are 2 cases. LSR immediate offset of 5 bits, and LSR register offset using the least significant byte (bits 7 to 0). 
-	--In this case, it's immediate offset. An offset of 0 indicates logical right shift of 32 rather than 0; 
-	--instead, LSR #0 is converted to LSL #0. This applies to ASR and ROR as well
-	local result = nil
-	local C = nil
-	if Offset == 0 then
-		C = bit.check(Rs, 31) and 1 or 0
-		result = 0
-	else
-		C = bit.check(Rs, Offset-1) and 1 or 0
-		result = bit.rshift(Rs, Offset)
-	end
-	local N = bit.check(result,31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, set_flag(CPSR, N, Z, C, V, Q)
-end
-
-function LSR2(Rd, Rs, CPSR)
-	--There are 2 cases. LSR immediate offset of 5 bits, and LSR register offset using the least significant byte (bits 7 to 0). 
-	--In this case, it's register offset. Unlike LSR1, this does allow LSR #0 to occur.
-	--We first mask the Offset (Rs, in this case) into an 8 bit number
-	Rs = bit.band(0xFF, Rs)
-	local result = nil
-	local C = nil
-	if Rs == 0 then
-		C = bit.check(CPSR, 29) and 1 or 0	--C flag unaffected if 0 shift
-		result = Rd
-	elseif Rs < 32 then
-		C = bit.check(Rd, Rs-1) and 1 or 0
-		result = bit.rshift(Rd, Rs)
-	elseif Rs == 32 then
-		C = bit.check(Rd, 31) and 1 or 0
-		result = 0
-	else	--Greater than 32
-		C = 0
-		result = 0
-	end
-	local N = bit.check(result,31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, set_flag(CPSR, N, Z, C, V, Q)
-end
-
-function ASR1(Rm, Offset, CPSR)
-	--There are 2 cases. ASR immediate offset of 5 bits, and ASR register offset using the least significant byte (bits 7 to 0). 
-	--In this case, it's immediate offset. An offset of 0 indicates arithmetic right shift of 32 rather than 0; 
-	--instead, ASR #0 is converted to LSL #0. This applies to LSR and ROR as well
-	local result = nil
-	local C = nil
-	if Offset == 0 then
-		C = bit.check(Rm, 31) and 1 or 0
-		if C == 0 then
-			result = 0
-		else	--bit 31 of Rm is 1
-			result = 0xFFFFFFFF
-		end
-	else
-		C = bit.check(Rm, Offset-1) and 1 or 0
-		result = bit.arshift(Rs, Offset)
-	end
-	local N = bit.check(result,31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, set_flag(CPSR, N, Z, C, V, Q)
-end
-
-function ASR2(Rd, Rs, CPSR)
-	--There are 2 cases. ASR immediate offset of 5 bits, and ASR register offset using the least significant byte (bits 7 to 0). 
-	--In this case, it's register offset. Unlike ASR1, this does allow ASR #0 to occur.
-	--We first mask the Offset (Rs, in this case) into an 8 bit number
-	Rs = bit.band(0xFF, Rs)
-	local result = nil
-	local C = nil
-	if Rs == 0 then
-		C = bit.check(CPSR, 29) and 1 or 0	--C flag unaffected if 0 shift
-		result = Rd
-	elseif Rs < 32 then
-		C = bit.check(Rd, Rs-1) and 1 or 0
-		result = bit.arshift(Rs, Rs)
-	else --Greater than 32
-		C = bit.check(Rd, 31) and 1 or 0
-		if C == 0 then
-			result = 0
-		else	--bit 31 of Rd is 1
-			result = 0xFFFFFFFF
-		end
-	end
-	local N = bit.check(result,31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, set_flag(CPSR, N, Z, C, V, Q)
+	return utility.load_biz_addr(address,size)
 end
 
 function ADC(Rs, Rn, Carry, CPSR)
@@ -275,7 +64,7 @@ function ADC(Rs, Rn, Carry, CPSR)
 	end
 	local Q = bit.check(CPSR, 27) and 1 or 0	--unchanged
 	-- console.log("After: N: "..N.." Z: "..Z.." C: "..C.." V: "..V.." Q: "..Q)
-	return sum32, set_flag(CPSR, N, Z, C, V, Q)
+	return sum32, utility.set_flag(CPSR, N, Z, C, V, Q)
 end
 
 function ADD(Rs, Rn, CPSR)
@@ -312,7 +101,7 @@ function MOV(Offset8, CPSR)
 	--V, Q flag unchanged
 	local V = bit.check(CPSR, 28) and 1 or 0
 	local Q = bit.check(CPSR, 27) and 1 or 0
-	return Offset8, set_flag(CPSR, N, Z, C, V, Q)
+	return Offset8, utility.set_flag(CPSR, N, Z, C, V, Q)
 end
 
 function AND(Rd, Rs, CPSR)
@@ -324,7 +113,7 @@ function AND(Rd, Rs, CPSR)
 	--V, Q flag unchanged
 	local V = bit.check(CPSR, 28) and 1 or 0
 	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, set_flag(CPSR, N, Z, C, V, Q)
+	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
 end
 
 function EOR(Rd, Rs, CPSR)
@@ -336,7 +125,7 @@ function EOR(Rd, Rs, CPSR)
 	--V, Q flag unchanged
 	local V = bit.check(CPSR, 28) and 1 or 0
 	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, set_flag(CPSR, N, Z, C, V, Q)
+	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
 end
 
 function ROR(Rd, Rs, CPSR)
@@ -348,7 +137,7 @@ function ROR(Rd, Rs, CPSR)
 	--V, Q flag unchanged
 	local V = bit.check(CPSR, 28) and 1 or 0
 	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, set_flag(CPSR, N, Z, C, V, Q)
+	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
 end
 
 function NEG(Rs)
@@ -364,7 +153,7 @@ function ORR(Rd, Rs, CPSR)
 	--V, Q flag unchanged
 	local V = bit.check(CPSR, 28) and 1 or 0
 	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, set_flag(CPSR, N, Z, C, V, Q)
+	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
 end
 
 function MUL(Rd, Rs, CPSR)
@@ -375,7 +164,7 @@ function MUL(Rd, Rs, CPSR)
 	--C, V, Q flag unchanged
 	local V = bit.check(CPSR, 28) and 1 or 0
 	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, set_flag(CPSR, N, Z, C, V, Q)
+	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
 end
 
 function BIC(Rd, Rs, CPSR)
@@ -387,7 +176,7 @@ function BIC(Rd, Rs, CPSR)
 	--V, Q flag unchanged
 	local V = bit.check(CPSR, 28) and 1 or 0
 	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, set_flag(CPSR, N, Z, C, V, Q)
+	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
 end
 
 function MVN(Rs, CPSR)
@@ -418,17 +207,17 @@ end
 
 function LDR(Rb, Ro)
 --don't set flags
-	return load_biz_addr(Rb + Ro, 32)
+	return utility.load_biz_addr(Rb + Ro, 32)
 end
 
 function LDRB(Rb, Ro)
 --don't set flags
-	return load_biz_addr(Rb + Ro, 8)
+	return utility.load_biz_addr(Rb + Ro, 8)
 end
 
 function LDRH(Rb, Ro)
 --Add Ro to base address in Rb. Load bits 0-15 of Rd from the resulting address, and set bits 16-31 of Rd to 0.
-	local result = load_biz_addr(Rb + Ro, 32)
+	local result = utility.load_biz_addr(Rb + Ro, 32)
 	result = bit.band(0xFFFF, result)	-- binary 1111 1111 1111 1111
 	for i = 16, 31 do
 		bit.clear(result,i)
@@ -438,7 +227,7 @@ end
 
 function LDSB(Rb, Ro)
 --Add Ro to base address in Rb. Load bits 0-7 of Rd from the resulting address, and set bits 8-31 of Rd to bit 7.
-	local result = load_biz_addr(Rb + Ro, 32)
+	local result = utility.load_biz_addr(Rb + Ro, 32)
 	local bit7 = bit.check(result,7) and 1 or 0
 	result = bit.band(0xFF, result)	-- binary 1111 1111
 	for i = 8, 31 do
@@ -449,7 +238,7 @@ end
 
 function LDSH(Rb, Ro)
 --Add Ro to base address in Rb. Load bits 0-15 of Rd from the resulting address, and set bits 16-31 of Rd to bit 15.
-	local result = load_biz_addr(Rb + Ro, 32)
+	local result = utility.load_biz_addr(Rb + Ro, 32)
 	local bit15 = bit.check(result,15) and 1 or 0
 	result = bit.band(0xFFFF, result)	-- binary 1111 1111 1111 1111
 	for i = 16, 31 do
@@ -459,19 +248,19 @@ function LDSH(Rb, Ro)
 end
 
 function STR(Rd, Rb, Ro)
-	write_biz_addr(Rb + Ro, Rd, 32)
+	utility.write_biz_addr(Rb + Ro, Rd, 32)
 	return
 end
 
 function STRB(Rd, Rb, Ro)
-	write_biz_addr(Rb + Ro, Rd, 8)
+	utility.write_biz_addr(Rb + Ro, Rd, 8)
 	return
 end
 
 function STRH(Rd, Rb, Ro)
 	--Add Ro to base address in Rb. Store bits 0-15 of Rd at the resulting address
 	local bit_0_15 = bit.band(0xFFFF, Rd)	-- binary 1111 1111 1111 1111
-	write_biz_addr(Rb + Ro, bit_0_15, 32)
+	utility.write_biz_addr(Rb + Ro, bit_0_15, 32)
 	return
 end
 
@@ -693,12 +482,12 @@ function PUSH(R, RList, Registers)
 	local addr = start_addr
 	for i = 0, 7 do
 		if bit.rshift(RList, i) % 2 == 1 then	--its this, or ugly bit.check(RList, i)
-			write_biz_addr(addr, Registers[i], 32)
+			utility.write_biz_addr(addr, Registers[i], 32)
 			addr = addr + 4
 		end
 	end
 	if R == 1 then 
-		write_biz_addr(addr, SP, 32)
+		utility.write_biz_addr(addr, SP, 32)
 		addr = addr + 4
 	end
 	if (addr - 4) ~= end_addr then console.log("PUSH ERROR:\nAddress is "..hex(addr).." but End is: "..hex(end_addr)) end
@@ -722,12 +511,12 @@ function POP(R, RList, Registers)
 	local addr = start_addr
 	for i = 0, 7 do
 		if bit.rshift(RList, i) % 2 == 1 then	--its this, or ugly bit.check(RList, i)
-			temp[i] = load_biz_addr(addr, 32)
+			temp[i] = utility.load_biz_addr(addr, 32)
 			addr = addr + 4
 		end
 	end
 	if R == 1 then 
-		temp[15] = bit.band(0xFFFFFFFE, load_biz_addr(addr, 32))	--Mask away bit 0, since it's used to determine ARM/THUMB mode
+		temp[15] = bit.band(0xFFFFFFFE, utility.load_biz_addr(addr, 32))	--Mask away bit 0, since it's used to determine ARM/THUMB mode
 		addr = addr + 4
 	end
 	if addr ~= end_addr then console.log("POP ERROR\nAddress is "..hex(addr).." but End is: "..hex(end_addr)) end
@@ -838,12 +627,12 @@ end_address = SP - 4
 	local addr = start_addr
 	for i = 0, 7 do
 		if bit.rshift(RList, i) % 2 == 1 then	--its this, or ugly bit.check(RList, i)
-			write_biz_addr(addr, registers[i], 32)
+			utility.write_biz_addr(addr, registers[i], 32)
 			addr = addr + 4
 		end
 	end
 	if R == 1 then 
-		write_biz_addr(addr, Ri, 32)
+		utility.write_biz_addr(addr, Ri, 32)
 		addr = addr + 4
 	end
 	if (addr - 4) ~= end_addr then console.log("PUSH ERROR:\nAddress is "..hex(addr).." but End is: "..hex(end_addr)) end
@@ -880,12 +669,12 @@ function POP(R, Rn, RList, registers)
 	local addr = start_addr
 	for i = 0, 7 do
 		if bit.rshift(RList, i) % 2 == 1 then	--its this, or ugly bit.check(RList, i)
-			temp_array[i] = load_biz_addr(addr, 32)
+			temp_array[i] = utility.load_biz_addr(addr, 32)
 			addr = addr + 4
 		end
 	end
 	if R == 1 then 
-		temp_array[15] = bit.band(0xFFFFFFFE, load_biz_addr(addr, 32))	--Mask away bit 0, since it's used to determine ARM/THUMB mode
+		temp_array[15] = bit.band(0xFFFFFFFE, utility.load_biz_addr(addr, 32))	--Mask away bit 0, since it's used to determine ARM/THUMB mode
 		addr = addr + 4
 	end
 	--LDMIA's end address is addr - 4, while POP is just addr
@@ -933,15 +722,15 @@ function thumb_format1(OP, Rd, Rs, Offset5, registers)
 	if OP == 0 then
 	--Shift Rs left by a 5-bit immediate value and store the result in Rd.
 		-- console.log(hex(temp_array[Rd]))
-		temp_array[Rd], temp_array.CPSR = LSL(registers[Rs], Offset5, CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.LSL(registers[Rs], Offset5, CPSR)
 		return_string = return_string.."LSL"..end_string
 	elseif OP == 1 then
 	--Perform logical shift right on Rs by a 5-bit immediate value and store the result in Rd.
-		temp_array[Rd], temp_array.CPSR = LSR1(registers[Rs], Offset5, CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.LSR1(registers[Rs], Offset5, CPSR)
 		return_string = return_string.."LSR"..end_string
 	elseif OP == 2 then
 	--Perform arithmetic shift right on Rs by a 5-bit immediate value and store the result in Rd.
-		temp_array[Rd], temp_array.CPSR = ASR(registers[Rs], Offset5, CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.ASR1(registers[Rs], Offset5, CPSR)
 		return_string = return_string.."ASR"..end_string
 	else
 		return_string = "Format 1 error"
@@ -1020,15 +809,15 @@ function thumb_format4(OP, Rs, Rd, registers)
 		return_string = return_string.."EOR"..end_string
 	elseif OP == 2  then
 	--Rd := Rd << Rs
-		temp_array[Rd], temp_array.CPSR = LSL(registers[Rd], registers[Rs], CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.LSL(registers[Rd], registers[Rs], CPSR)
 		return_string = return_string.."LSL"..end_string
 	elseif OP == 3  then
 	--Rd := Rd >> Rs
-		temp_array[Rd], temp_array.CPSR = LSR2(registers[Rd], registers[Rs], CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.LSR2(registers[Rd], registers[Rs], CPSR)
 		return_string = return_string.."LSR"..end_string
 	elseif OP == 4  then
 	--Rd := Rd ASR Rs
-		temp_array[Rd], temp_array.CPSR = ASR(registers[Rd], registers[Rs], CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.ASR2(registers[Rd], registers[Rs], CPSR)
 		return_string = return_string.."ASR"..end_string
 	elseif OP == 5  then
 	--Rd := Rd + Rs + C-bit
