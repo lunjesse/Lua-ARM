@@ -143,6 +143,28 @@ function overflow_from_sub(A, B)
 	return (A31 ~= B31 and A31 ~= AB31) and 1 or 0
 end
 
+function ADC(Rs, Rn, Carry, CPSR, Sub)
+	--Insert a boolean to determine if subtract or not. Default false
+	--we need carry as well, since some instructions ignore carry flag
+	local result = (Rs + Rn + Carry)
+	local sum32 = result % 4294967296
+	local N = bit.check(sum32,31) and 1 or 0
+	local Z = (sum32 == 0) and 1 or 0
+	local C = carry_from(Rs, Rn + Carry)
+	local V = 0
+	--Can't seem to figure out how to implement SUB as ADD using ADC, so just using a bool to check which version of overflow to use
+	if Sub == true then
+		V = overflow_from_sub(Rs, bit.bnot(Rn))
+	else
+		V = overflow_from_add(Rs, Rn + Carry)
+	end
+	local Q = bit.check(CPSR, 27) and 1 or 0	--unchanged
+	-- console.log("After: N: "..N.." Z: "..Z.." C: "..C.." V: "..V.." Q: "..Q)
+	return sum32, utility.set_flag(CPSR, N, Z, C, V, Q)
+end
+
+--DATA PROCESSING OPERANDS
+--Function(Operand1, Operand2, CPSR)
 --ARM Manual A5-9, A5-10, A7-64, A7-66 (THUMB)
 function utility.LSL(Rs, Offset, CPSR)
 --Imagine that the shift happens with a double-wide register, and then at the end we cut off the lower 32 bits to get the new value, and then the next bit onward is the carry flag
@@ -377,7 +399,7 @@ function utility.ROR2(Rm, Rs, CPSR)
 	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
 end
 
---ARM Manual pA5-6
+--ARM Manual A5-6
 function utility.ROR3(immed_8, rotate_imm, CPSR)
 	--This is not used in THUMB; instead it is for ARM, data processing
 	--There are 3 cases. ROR immediate offset of 8 bits, ROR immediate offset of 5 bits, and ROR register offset using the least significant byte (bits 7 to 0). 
@@ -401,7 +423,7 @@ function utility.ROR3(immed_8, rotate_imm, CPSR)
 	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
 end
 
---ARM Manual pA7-14
+--ARM Manual A7-14
 function utility.AND(Rd, Rs, CPSR)
 	local result = bit.band(Rd,Rs)
 	local N = bit.check(result,31) and 1 or 0
@@ -413,7 +435,7 @@ function utility.AND(Rd, Rs, CPSR)
 	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
 end
 
---ARM Manual pA7-43
+--ARM Manual A7-43
 function utility.EOR(Rd, Rs, CPSR)
 	local result = bit.bxor(Rd, Rs)
 	local N = bit.check(result,31) and 1 or 0
@@ -425,30 +447,16 @@ function utility.EOR(Rd, Rs, CPSR)
 	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
 end
 
-function ADC(Rs, Rn, Carry, CPSR, Sub)
-	--Insert a boolean to determine if subtract or not. Default false
-	--we need carry as well, since some instructions ignore carry flag
-	local result = (Rs + Rn + Carry)
-	local sum32 = result % 4294967296
-	local N = bit.check(sum32,31) and 1 or 0
-	local Z = (sum32 == 0) and 1 or 0
-	local C = carry_from(Rs, Rn + Carry)
-	local V = 0
-	--Can't seem to figure out how to implement SUB as ADD using ADC, so just using a bool to check which version of overflow to use
-	if Sub == true then
-		V = overflow_from_sub(Rs, bit.bnot(Rn))
-	else
-		V = overflow_from_add(Rs, Rn + Carry)
-	end
-	local Q = bit.check(CPSR, 27) and 1 or 0	--unchanged
-	-- console.log("After: N: "..N.." Z: "..Z.." C: "..C.." V: "..V.." Q: "..Q)
-	return sum32, utility.set_flag(CPSR, N, Z, C, V, Q)
+--ARM Manual A4-209
+function utility.SUB(Rs, Rn, CPSR)
+--Subtract contents of Rn from contents of Rs. Ie. Rs - Rn
+	return ADC(Rs, bit.bnot(Rn), 1, CPSR, true)
 end
 
---This version is what thumb/arm module use. maybe
-function utility.ADC(Rs, Rn, CPSR)
-	local C = bit.check(CPSR,29) and 1 or 0
-	return ADC(Rs, Rn, C, CPSR, false)
+--ARM Manual A4-115
+function utility.RSB(Rs, Rn, CPSR)
+--Subtract contents of Rs from contents of Rn. Ie. Rn - Rs
+	return ADC(Rn, bit.bnot(Rs), 1, CPSR, true)
 end
 
 --ARM Manual A4-6 (ARM), A7-5, A7-6, A7-7, A7-8, A7-9, A7-10, A7-11, A7-12 (THUMB)
@@ -456,15 +464,116 @@ function utility.ADD(Rs, Rn, CPSR)
 	return ADC(Rs, Rn, 0, CPSR, false)
 end
 
-function utility.SBC(Rs, Rn, CPSR)
-	local temp = CPSR
-	local C = bit.check(CPSR, 29) and 1 or 0
-	return ADC(Rs, bit.bnot(Rn), C, temp, true)
+--This version is what thumb/arm module use. maybe
+--ARM Manual A4-4 (ARM),  A7-4
+function utility.ADC(Rs, Rn, CPSR)
+	local C = bit.check(CPSR,29) and 1 or 0
+	return ADC(Rs, Rn, C, CPSR, false)
 end
 
-function utility.SUB(Rs, Rn, CPSR)
-	return ADC(Rs, bit.bnot(Rn), 1, CPSR, true)
+--ARM Manual A4-125 (ARM), A7-94
+function utility.SBC(Rs, Rn, CPSR)
+	local C = bit.check(CPSR, 29) and 0 or -1
+	return ADC(Rs, bit.bnot(Rn), C, CPSR, true)
 end
+
+--ARM Manual A4-117
+function utility.RSC(Rs, Rn, CPSR)
+--Subtract contents of Rs from contents of Rn, with NOT carry. Ie. Rn - Rs
+	local C = bit.check(CPSR,29) and 0 or -1	--NOT C flag; Also needs to be - C, which you can do by making C negative
+	return ADC(Rn, bit.bnot(Rs), C, CPSR, true)
+end
+
+--ARM Manual A4-230 (ARM), A7-122
+function utility.TST(Rd, Rs, CPSR)
+--From  ARM manual: Test (register) performs a logical AND operation on a register value and an optionally-shifted register value.
+--It updates the condition flags based on the result, and discards the result.
+	local _, CPSR2 = utility.AND(Rd, Rs, CPSR)
+	return Rd, CPSR2	--Need to return Rd to make it same as other functions for lookup table
+end
+
+--ARM Manual A4-228
+function utility.TEQ(Rd, Rs, CPSR)
+--From ARM manual: TEQ (Test Equivalence) compares a register value with another arithmetic value. The condition flags are
+-- updated, based on the result of logically exclusive-ORing the two values, so that subsequent instructions can
+--be conditionally executed.
+	local _, CPSR2 = utility.EOR(Rd, Rs, CPSR)
+	return Rd, CPSR2	--Need to return Rd to make it same as other functions for lookup table
+end
+
+--ARM Manual A4-28 (ARM), A7-35, A7-36, A7-37
+function utility.CMP(Rd, Rs, CPSR)
+--From ARM manual: Compare (immediate) subtracts an immediate value from a register value. 
+--It updates the condition flags based on the result, and discards the result.
+--This is also used for format 5 in THUMB
+	local _, CPSR2 = utility.SUB(Rd, Rs, CPSR)
+	return Rd, CPSR2	--Need to return Rd to make it same as other functions for lookup table
+end
+
+--ARM Manual A4-26 (ARM), A7-34
+function utility.CMN(Rd, Rs, CPSR)
+--From ARM manual: Compare Negative (register) adds a register value and an optionally-shifted register value. 
+--It updates the condition flags based on the result, and discards the result.
+	local _, CPSR2 = utility.ADD(Rd, Rs, CPSR)
+	return Rd, CPSR2	--Need to return Rd to make it same as other functions for lookup table
+end
+
+--ARM Manual A4-84 (ARM), A7-81
+function utility.ORR(Rd, Rs, CPSR)
+	local result = bit.bor(Rd, Rs)
+	local N = bit.check(result,31) and 1 or 0
+	local Z = (result == 0) and 1 or 0
+	--Manual sets carry by LSL shift 0 with Rs (Rm in ARM manual); this means 32 - 0 = 32th bit
+	local C = bit.check(Rs, 32) and 1 or 0
+	--V, Q flag unchanged
+	local V = bit.check(CPSR, 28) and 1 or 0
+	local Q = bit.check(CPSR, 27) and 1 or 0
+	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
+end
+
+--ARM Manual A4-68 (ARM), A7-72, A7-73, A7-75
+function utility.MOV(dummy, Offset8, CPSR)
+--Need dummy to make it same argument placement as other functions for lookup table
+	local N = bit.check(Offset8,31) and 1 or 0
+	local Z = (Offset8 == 0) and 1 or 0
+	local C = bit.check(CPSR, 29) and 1 or 0	--not sure if changed
+	--V, Q flag unchanged
+	local V = bit.check(CPSR, 28) and 1 or 0
+	local Q = bit.check(CPSR, 27) and 1 or 0
+	return Offset8, utility.set_flag(CPSR, N, Z, C, V, Q)
+end
+
+--ARM Manual A4-12 (ARM), A7-23
+function utility.BIC(Rd, Rs, CPSR)
+	local result = bit.band(Rd, bit.bnot(Rs))
+	local N = bit.check(result,31) and 1 or 0
+	local Z = (result == 0) and 1 or 0
+	--Manual sets carry by LSL shift 0 with Rs (Rm in ARM manual); this means 32 - 0 = 32th bit
+	local C = bit.check(Rs, 32) and 1 or 0
+	--V, Q flag unchanged
+	local V = bit.check(CPSR, 28) and 1 or 0
+	local Q = bit.check(CPSR, 27) and 1 or 0
+	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
+end
+
+--ARM Manual A4-82 (ARM), A7-79
+function utility.MVN(dummy, Rs, CPSR)
+	local N = bit.check(Rs,31) and 1 or 0
+	local Z = (Rs == 0) and 1 or 0
+	--Manual sets carry by LSL shift 0; this means 32 - 0 = 32th bit
+	local C = bit.check(Rs, 32) and 1 or 0	
+	--V, Q flag unchanged
+	local V = bit.check(CPSR, 28) and 1 or 0
+	local Q = bit.check(CPSR, 27) and 1 or 0
+	return bit.bnot(Rs)
+end
+
+--ARM Manual A7-80 (THUMB only)
+function utility.NEG(Rs, CPSR)
+--You need to set flags similar to Operand1 being 0
+	return utility.SUB(0, Rs, CPSR)
+end
+
 
 --Arith without ADC use
 --ARM Manual A4-6 (ARM), A7-5, A7-6, A7-7, A7-8, A7-9, A7-10, A7-11, A7-12 (THUMB)
