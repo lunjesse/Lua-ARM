@@ -17,31 +17,6 @@ function asm_thumb_module.pc_to_inst(pc)
 	return utility.load_biz_addr(address,size)
 end
 
-function MOV(Offset8, CPSR)
-	local N = bit.check(Offset8,31) and 1 or 0
-	local Z = (Offset8 == 0) and 1 or 0
-	local C = bit.check(CPSR, 29) and 1 or 0	--not sure if changed
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return Offset8, utility.set_flag(CPSR, N, Z, C, V, Q)
-end
-
-function NEG(Rs)
-	return -1 * Rs
-end
-
-function ORR(Rd, Rs, CPSR)
-	local result = bit.bor(Rd, Rs)
-	local N = bit.check(result,31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	--Manual sets carry by LSL shift 0 with Rs (Rm in ARM manual); this means 32 - 0 = 32th bit
-	local C = bit.check(Rs, 32) and 1 or 0
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
-end
 
 function MUL(Rd, Rs, CPSR)
 	local result = Rd * Rs;
@@ -52,29 +27,6 @@ function MUL(Rd, Rs, CPSR)
 	local V = bit.check(CPSR, 28) and 1 or 0
 	local Q = bit.check(CPSR, 27) and 1 or 0
 	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
-end
-
-function BIC(Rd, Rs, CPSR)
-	local result = bit.band(Rd, bit.bnot(Rs))
-	local N = bit.check(result,31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	--Manual sets carry by LSL shift 0 with Rs (Rm in ARM manual); this means 32 - 0 = 32th bit
-	local C = bit.check(Rs, 32) and 1 or 0
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
-end
-
-function MVN(Rs, CPSR)
-	local N = bit.check(Rs,31) and 1 or 0
-	local Z = (Rs == 0) and 1 or 0
-	--Manual sets carry by LSL shift 0; this means 32 - 0 = 32th bit
-	local C = bit.check(Rs, 32) and 1 or 0	
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return bit.bnot(Rs)
 end
 
 function BX(Rs, CPSR)
@@ -330,28 +282,6 @@ function BLE(offset, r15, CPSR)
 	else
 		return r15
 	end
-end
-
-function CMP(Rd, Rs, CPSR)
---From ARM manual: Compare (immediate) subtracts an immediate value from a register value. 
---It updates the condition flags based on the result, and discards the result.
---This is also used for format 5
-	local _, CPSR2 = utility.SUB(Rd, Rs, CPSR)
-	return CPSR2
-end
-
-function CMN(Rd, Rs, CPSR)
---From ARM manual: Compare Negative (register) adds a register value and an optionally-shifted register value. 
---It updates the condition flags based on the result, and discards the result.
-	local _, CPSR2 = utility.ADD(Rd, Rs, CPSR)
-	return CPSR2
-end
-
-function TST(Rd, Rs, CPSR)
---From  ARM manual: Test (register) performs a logical AND operation on a register value and an optionally-shifted register value.
---It updates the condition flags based on the result, and discards the result.
-	local _, CPSR2 = utility.AND(Rd, Rs, CPSR)
-	return CPSR2
 end
 
 --[[ PUSH only without STMIA
@@ -661,11 +591,11 @@ function thumb_format3(OP, Rd, Offset8, registers)
 	local end_string = " Rd, #Offset8\nRd: "..Rd.." ("..hex(registers[Rd])..") Offset8: "..Offset8
 	if OP == 0 then
 	--Move 8-bit immediate value into Rd.
-		temp_array[Rd], temp_array.CPSR = MOV(Offset8, CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.MOV(_, Offset8, CPSR)
 		return_string = return_string.."MOV"..end_string
 	elseif OP == 1 then
 	--Compare contents of Rd with 8-bit immediate value.
-		temp_array.CPSR = CMP(registers[Rd], Offset8, CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.CMP(registers[Rd], Offset8, CPSR)
 		return_string = return_string.."CMP"..end_string
 	elseif OP == 2 then
 	--Add 8-bit immediate value to contents of Rd and place the result in Rd.
@@ -720,23 +650,23 @@ function thumb_format4(OP, Rs, Rd, registers)
 		return_string = return_string.."ROR"..end_string
 	elseif OP == 8  then
 	--Set condition codes on Rd AND R
-		TST(registers[Rd], registers[Rs], CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.TST(registers[Rd], registers[Rs], CPSR)
 		return_string = return_string.."TST"..end_string
 	elseif OP == 9  then
-	--Rd = -Rs
-		temp_array[Rd] = NEG(registers[Rs])
+	--Rd = 0-Rs
+		temp_array[Rd], temp_array.CPSR = utility.NEG(registers[Rs], CPSR)
 		return_string = return_string.."NEG"..end_string
 	elseif OP == 10  then
 	--Set condition codes on Rd - Rs
-		temp_array.CPSR = CMP(registers[Rd], registers[Rs], CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.CMP(registers[Rd], registers[Rs], CPSR)
 		return_string = return_string.."CMP"..end_string
 	elseif OP == 11  then
 	--Set condition codes on Rd + Rs
-		temp_array.CPSR = CMN(registers[Rd], registers[Rs], CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.CMN(registers[Rd], registers[Rs], CPSR)
 		return_string = return_string.."CMN"..end_string
 	elseif OP == 12  then
 	--Rd := Rd OR Rs
-		temp_array[Rd] = ORR(registers[Rd], registers[Rs], CPSR)
+		temp_array[Rd] = utility.ORR(registers[Rd], registers[Rs], CPSR)
 		return_string = return_string.."ORR"..end_string
 	elseif OP == 13 then
 	--Rd := Rs * Rd
@@ -744,11 +674,11 @@ function thumb_format4(OP, Rs, Rd, registers)
 		return_string = return_string.."MUL"..end_string
 	elseif OP == 14  then
 	--Rd := Rd AND NOT Rs
-		temp_array[Rd], temp_array = BIC(registers[Rd], registers[Rs], CPSR)
+		temp_array[Rd], temp_array = utility.BIC(registers[Rd], registers[Rs], CPSR)
 		return_string = return_string.."BIC"..end_string
 	elseif OP == 15  then
 	--Rd := NOT Rs
-		temp_array[Rd] = MVN(registers[Rs], CPSR)
+		temp_array[Rd] = utility.MVN(_, registers[Rs], CPSR)
 		return_string = return_string.."MVN"..end_string
 	else
 		return_string = "Format 4 error"
@@ -790,29 +720,29 @@ function thumb_format5(OP, H1, H2, Rs, Rd, registers)
 		return_string = "Format 5 error 2"	--undefined
 	elseif OP == 5 then
 	--Compare a register in the range 0-7 with a register in the range 8-15.
-		temp_array.CPSR = CMP(registers[Rd], registers[Hs], CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.CMP(registers[Rd], registers[Hs], CPSR)
 		return_string = return_string.."CMP"..end_string
 	elseif OP == 6 then
 	--Compare a register in the range 8-15 with a register in the range 0-7.
-		temp_array.CPSR = CMP(registers[Hd], registers[Rs], CPSR)
+		temp_array[Hd], temp_array.CPSR = utility.CMP(registers[Hd], registers[Rs], CPSR)
 		return_string = return_string.."CMP"..end_string2
 	elseif OP == 7 then
 	-- Compare two registers in the range 8-15.
-		temp_array.CPSR = CMP(registers[Hd], registers[Hs], CPSR)
+		temp_array[Hd], temp_array.CPSR = utility.CMP(registers[Hd], registers[Hs], CPSR)
 		return_string = return_string.."CMP"..end_string3
 	elseif OP == 8 then
 		return_string = "Format 5 error 3"	--undefined
 	elseif OP == 9 then
 	--Move a value from a register in the range 8-15 to a register in the range 0-7.
-		temp_array[Rd], temp_array.CPSR = MOV(registers[Hs], CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.MOV(_, registers[Hs], CPSR)
 		return_string = return_string.."MOV"..end_string
 	elseif OP == 10 then
 	--Move a value from a register in the range 0-7 to a register in the range 8-15.
-		temp_array[Hd], temp_array.CPSR = MOV(registers[Rs], CPSR)
+		temp_array[Hd], temp_array.CPSR = utility.MOV(_, registers[Rs], CPSR)
 		return_string = return_string.."MOV"..end_string2
 	elseif OP == 11 then
 	--Move a value between two registers in the range 8-15.
-		temp_array[Hd], temp_array.CPSR = MOV(registers[Hs], CPSR)
+		temp_array[Hd], temp_array.CPSR = utility.MOV(_, registers[Hs], CPSR)
 		return_string = return_string.."MOV"..end_string3
 	elseif OP == 12 then
 	--Perform branch (plus optional state change) to address in a register in the range 0-7.
