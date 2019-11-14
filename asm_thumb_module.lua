@@ -17,83 +17,6 @@ function asm_thumb_module.pc_to_inst(pc)
 	return utility.load_biz_addr(address,size)
 end
 
-function ADC(Rs, Rn, Carry, CPSR)
-	--we need carry as well, since some instructions ignore carry flag
-	local N_L = bit.check(CPSR, 31) and 1 or 0
-	local Z_L = bit.check(CPSR, 30) and 1 or 0
-	local C_L = bit.check(CPSR, 29) and 1 or 0
-	local V_L = bit.check(CPSR, 28) and 1 or 0
-	local Q_L = bit.check(CPSR, 27) and 1 or 0
-	-- console.log("Before: N: "..N_L.." Z: "..Z_L.." C: "..C_L.." V: "..V_L.." Q: "..Q_L)
-	-- console.log("RS: "..hex(Rs).." RN:"..hex(Rn).." Carry: "..Carry)
-	local max32s = 2^32
-	local sum = (Rs + Rn + Carry)
-	local sum32 = sum % max32s
-	-- console.log(hex(sum))
-	-- console.log("Mod: "..hex(sum32))
-	local N = bit.check(sum32,31) and 1 or 0
-	local Z = (sum32 == 0) and 1 or 0
-	--[[
-	The carry flag is set if the addition of two numbers causes a carry
-	out of the most significant (leftmost) bits added.
-	Since lua is 64 bit while the registers are 32 bit, we can just check 
-	if the result ended up smaller than mod 2,147,483,647‬
-	]]--
-	local C = (sum > 0xFFFFFFFF) and 1 or 0
-	local V = 0
-	--[[http://teaching.idallen.com/dat2343/10f/notes/040_overflow.txt
-	In unsigned arithmetic, watch the carry flag to detect errors.
-	In signed arithmetic, the carry flag tells you nothing interesting.
-	]]--
-	--[[
-	1. If the sum of two numbers with the sign bits off yields a result number
-   with the sign bit on, the "overflow" flag is turned on.
-	2. If the sum of two numbers with the sign bits on yields a result number
-   with the sign bit off, the "overflow" flag is turned on.
-	Since lua is 64 bit while the registers are 32 bit, we can just check 
-	if bit 31 was changed on addition
-	]]--
-	local Rs_sign = bit.check(Rs, 31) and 1 or 0
-	local Rn_sign = bit.check(Rn, 31) and 1 or 0
-	local sum32_sign = bit.check(sum32, 31) and 1 or 0
-	-- console.log("Rs_sign: "..Rs_sign.." Rn_sign: "..Rn_sign.." Sum32_sign: "..sum32_sign)
-	if Rn_sign == 0 then	--2nd operand positive
-		V = (Rs_sign == Rn_sign and sum32_sign ~= Rs_sign) and 1 or 0
-	else	--2nd operand negative
-		V = (Rn_sign == sum32_sign and Rs_sign ~= Rn_sign) and 1 or 0
-	end
-	local Q = bit.check(CPSR, 27) and 1 or 0	--unchanged
-	-- console.log("After: N: "..N.." Z: "..Z.." C: "..C.." V: "..V.." Q: "..Q)
-	return sum32, utility.set_flag(CPSR, N, Z, C, V, Q)
-end
-
-function ADD(Rs, Rn, CPSR)
-	return ADC(Rs, Rn, 0, CPSR)
-end
-
---In the case of adding to the program counter, do not set flags
-function ADD2(Rs, Rn, CPSR)
-	local temp = CPSR
-	local result, flags = ADC(Rs, Rn, 0, temp)
-	return result, CPSR	--dont change flags
-end
-
-function SBC(Rs, Rn, CPSR)
-	local temp = CPSR
-	local C = bit.check(CPSR, 29) and 1 or 0
-	return ADC(Rs, bit.bnot(Rn), C, temp)
-end
-
-function SUB(Rs, Rn, CPSR)
-	return ADC(Rs, bit.bnot(Rn), 1, CPSR)
-end
-
---In the case of adding to the program counter, do not set flags
-function SUB2(Rs, Rn, CPSR)
-	return ADC(Rs, bit.bnot(Rn), 1, CPSR)
-end
-
-
 function MOV(Offset8, CPSR)
 	local N = bit.check(Offset8,31) and 1 or 0
 	local Z = (Offset8 == 0) and 1 or 0
@@ -102,42 +25,6 @@ function MOV(Offset8, CPSR)
 	local V = bit.check(CPSR, 28) and 1 or 0
 	local Q = bit.check(CPSR, 27) and 1 or 0
 	return Offset8, utility.set_flag(CPSR, N, Z, C, V, Q)
-end
-
-function AND(Rd, Rs, CPSR)
-	local result = bit.band(Rd,Rs)
-	local N = bit.check(result,31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	--Manual sets carry by LSL shift 0 with Rs (Rm in ARM manual); this means 32 - 0 = 32th bit
-	local C = bit.check(Rs, 32) and 1 or 0
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
-end
-
-function EOR(Rd, Rs, CPSR)
-	local result = bit.bxor(Rd, Rs)
-	local N = bit.check(result,31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	--Manual sets carry by LSL shift 0 with Rs (Rm in ARM manual); this means 32 - 0 = 32th bit
-	local C = bit.check(Rs, 32) and 1 or 0
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
-end
-
-function ROR(Rd, Rs, CPSR)
-	local result = bit.ror(Rd, Rs)
-	local N = bit.check(result,31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	--Manual sets carry by LSL shift 0 with Rs (Rm in ARM manual); this means 32 - 0 = 32th bit
-	local C = bit.check(Rs, 32) and 1 or 0
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
 end
 
 function NEG(Rs)
@@ -449,21 +336,21 @@ function CMP(Rd, Rs, CPSR)
 --From ARM manual: Compare (immediate) subtracts an immediate value from a register value. 
 --It updates the condition flags based on the result, and discards the result.
 --This is also used for format 5
-	local _, CPSR2 = SUB(Rd, Rs, CPSR)
+	local _, CPSR2 = utility.SUB(Rd, Rs, CPSR)
 	return CPSR2
 end
 
 function CMN(Rd, Rs, CPSR)
 --From ARM manual: Compare Negative (register) adds a register value and an optionally-shifted register value. 
 --It updates the condition flags based on the result, and discards the result.
-	local _, CPSR2 = ADD(Rd, Rs, CPSR)
+	local _, CPSR2 = utility.ADD(Rd, Rs, CPSR)
 	return CPSR2
 end
 
 function TST(Rd, Rs, CPSR)
 --From  ARM manual: Test (register) performs a logical AND operation on a register value and an optionally-shifted register value.
 --It updates the condition flags based on the result, and discards the result.
-	local _, CPSR2 = AND(Rd, Rs, CPSR)
+	local _, CPSR2 = utility.AND(Rd, Rs, CPSR)
 	return CPSR2
 end
 
@@ -747,19 +634,19 @@ function thumb_format2(OP, Rd, Rs, Rn, registers)
 	local end_string3 = end_string.." Offset3: "..Rn	--its 3 bits, no need to make it hex
 	if OP == 0 then
 --Add contents of Rn to contents of Rs. Place result in Rd
-		temp_array[Rd], temp_array.CPSR = ADD(registers[Rs], registers[Rn], CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.ADD(registers[Rs], registers[Rn], CPSR)
 		return_string = return_string.."ADD"..end_string2
 	elseif OP == 1 then
 --Subtract contents of Rn from contents of Rs. Place result in Rd.
-		temp_array[Rd], temp_array.CPSR = SUB(registers[Rs], registers[Rn], CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.SUB(registers[Rs], registers[Rn], CPSR)
 		return_string = return_string.."SUB"..end_string2
 	elseif OP == 2 then
 --Add 3-bit immediate value to contents of Rs. Place result in Rd.
-		temp_array[Rd], temp_array.CPSR = ADD(registers[Rs], Offset3, CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.ADD(registers[Rs], Offset3, CPSR)
 		return_string = return_string.."ADD"..end_string3
 	elseif OP == 3 then
 --Subtract 3-bit immediate value from contents of Rs. Place result in Rd.
-		temp_array[Rd], temp_array.CPSR = SUB(registers[Rs], Offset3, CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.SUB(registers[Rs], Offset3, CPSR)
 		return_string = return_string.."SUB"..end_string3
 	else
 		return_string = "Format 2 error"
@@ -782,11 +669,11 @@ function thumb_format3(OP, Rd, Offset8, registers)
 		return_string = return_string.."CMP"..end_string
 	elseif OP == 2 then
 	--Add 8-bit immediate value to contents of Rd and place the result in Rd.
-		temp_array[Rd], temp_array.CPSR = ADD(registers[Rd], Offset8, CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.ADD(registers[Rd], Offset8, CPSR)
 		return_string = return_string.."ADD"..end_string
 	elseif OP == 3 then
 	--Subtract 8-bit immediate value from contents of Rd and place the result in Rd.
-		temp_array[Rd], temp_array.CPSR = SUB(registers[Rd],Offset8, CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.SUB(registers[Rd],Offset8, CPSR)
 		return_string = return_string.."SUB"..end_string
 	else
 		return_string = "Format 3 error"
@@ -801,11 +688,11 @@ function thumb_format4(OP, Rs, Rd, registers)
 	local end_string = " Rd, Rs\nRd: "..Rd.." ("..hex(registers[Rd])..") Rs: "..Rs.." ("..hex(registers[Rs])..")"
 	if OP == 0  then
 	--Rd:= Rd AND Rs
-		temp_array[Rd], temp_array.CPSR = AND(registers[Rd], registers[Rs], CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.AND(registers[Rd], registers[Rs], CPSR)
 		return_string = return_string.."AND"..end_string
 	elseif OP == 1  then
 	--Rd:= Rd EOR Rs
-		temp_array[Rd], temp_array.CPSR = EOR(registers[Rd], registers[Rs], CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.EOR(registers[Rd], registers[Rs], CPSR)
 		return_string = return_string.."EOR"..end_string
 	elseif OP == 2  then
 	--Rd := Rd << Rs
@@ -821,15 +708,15 @@ function thumb_format4(OP, Rs, Rd, registers)
 		return_string = return_string.."ASR"..end_string
 	elseif OP == 5  then
 	--Rd := Rd + Rs + C-bit
-		temp_array[Rd], temp_array.CPSR = ADC(registers[Rd], registers[Rs], C, CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.ADC(registers[Rd], registers[Rs], CPSR)
 		return_string = return_string.."ADC"..end_string
 	elseif OP == 6  then
 	--Rd := Rd - Rs - NOT C-bit
-		temp_array[Rd], temp_array.CPSR = SBC(registers[Rd], registers[Rs], CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.SBC(registers[Rd], registers[Rs], CPSR)
 		return_string = return_string.."SBC"..end_string
 	elseif OP == 7  then
 	--Rd := Rd ROR Rs
-		temp_array[Rd], temp_array.CPSR = ROR(registers[Rd], registers[Rs], CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.ROR(registers[Rd], registers[Rs], CPSR)
 		return_string = return_string.."ROR"..end_string
 	elseif OP == 8  then
 	--Set condition codes on Rd AND R
@@ -884,20 +771,20 @@ function thumb_format5(OP, H1, H2, Rs, Rd, registers)
 		return_string = "Format 5 error 1"	--undefined
 	elseif OP == 1 then
 	--Add a register in the range 8-15 to a register in the range 0-7.
-		temp_array[Rd], temp_array.CPSR = ADD(registers[Rd], registers[Hs], temp_array.CPSR)
+		temp_array[Rd], temp_array.CPSR = utility.ADD(registers[Rd], registers[Hs], temp_array.CPSR)
 		return_string = return_string.."ADD"..end_string
 	elseif OP == 2 then
 	--Add a register in the range 0-7 to a register in the range 8-15.
 	--Don't set condition codes on R15/PC!
 		if (Hd == 15) then
-			temp_array[Hd], temp_array.CPSR = ADD2(registers[Hd], registers[Rs], temp_array.CPSR)
+			temp_array[Hd], _ = utility.ADD(registers[Hd], registers[Rs], temp_array.CPSR)
 		else
-			temp_array[Hd], temp_array.CPSR = ADD(registers[Hd], registers[Rs], temp_array.CPSR)
+			temp_array[Hd], temp_array.CPSR = utility.ADD(registers[Hd], registers[Rs], temp_array.CPSR)
 		end
 		return_string = return_string.."ADD"..end_string2
 	elseif OP == 3 then
 	--Add two registers in the range 8-15
-		temp_array[Hd], temp_array.CPSR = ADD(registers[Hd], registers[Hs], temp_array.CPSR)
+		temp_array[Hd], temp_array.CPSR = utility.ADD(registers[Hd], registers[Hs], temp_array.CPSR)
 		return_string = return_string.."ADD"..end_string3
 	elseif OP == 4 then
 		return_string = "Format 5 error 2"	--undefined
@@ -1104,10 +991,10 @@ function thumb_format12(SP, Rd, Word8, registers)
 	local end_string2 = " Rd, SP, #Imm\nRd: "..Rd.." ("..hex(registers[Rd])..") SP: ("..hex(registers[7])..") Imm: "..Word8
 	--Don't set condition codes!
 	if SP == 0 then
-		temp_array[Rd], temp_array.CPSR = ADD2(registers[15], Word8, temp_array.CPSR)
+		temp_array[Rd], _ = utility.ADD(registers[15], Word8, temp_array.CPSR)
 		return_string = return_string.."ADD"..end_string
 	elseif SP == 1 then
-		temp_array[Rd], temp_array.CPSR = ADD2(registers[7], Word8, temp_array.CPSR)
+		temp_array[Rd], _ = utility.ADD(registers[7], Word8, temp_array.CPSR)
 		return_string = return_string.."ADD"..end_string2
 	else
 		return_string = "Format 12 error"
@@ -1120,10 +1007,10 @@ function thumb_format13(S, Sword7, registers)
 	--Don't set condition codes!
 	local return_string = "Format 13: add offset to Stack Pointer: "
 	if S == 0 then
-		temp_array[13], temp_array.CPSR = ADD2(registers[13], SWord7, temp_array.CPSR)
+		temp_array[13], _ = utility.ADD(registers[13], SWord7, temp_array.CPSR)
 		return_string = return_string.."ADD SP, #Imm\nSP: ("..hex(registers[13])..")"
 	elseif S == 1 then
-		temp_array[13], temp_array.CPSR = SUB2(registers[13], SWord7, temp_array.CPSR)
+		temp_array[13], _ = utility.SUB(registers[13], SWord7, temp_array.CPSR)
 		return_string = return_string.."ADD SP, #-Imm\nSP: ("..hex(registers[13])..")"
 	else
 		return_string = "Format 13 error"
