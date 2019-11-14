@@ -77,6 +77,72 @@ function utility.write_biz_addr(addr, value, size)
 	end
 end
 
+function borrow_from(A, B)
+--[[
+BorrowFrom
+Returns 1 if the subtraction specified as its parameter caused a borrow (the true result is less than 0, 
+where the operands are treated as unsigned integers), and returns 0 in all other cases. This delivers further
+information about a subtraction which occurred earlier in the pseudo-code. The subtraction is not repeated.
+]]--
+	return B > A and 1 or 0
+end
+
+function carry_from(A, B)
+--[[
+CarryFrom
+Returns 1 if the addition specified as its parameter caused a carry (true result is bigger than 23^2−1, 
+where the operands are treated as unsigned integers), and returns 0 in all other cases. This delivers further
+information about an addition which occurred earlier in the pseudo-code. The addition is not repeated.
+]]--
+	return A+B > 4294967295 and 1 or 0
+end
+
+function overflow_from_add(A, B)
+--[[
+OverflowFrom
+Returns 1 if the addition or subtraction specified as its parameter caused a 32-bit signed overflow. 
+Addition generates an overflow if both operands have the same sign (bit[31]), and the sign of the result is different to the sign of both operands. 
+Subtraction causes an overflow if the operands have different signs, and the first operand and the result have different signs.
+This delivers further information about an addition or subtraction which occurred earlier in the pseudo-code.
+The addition or subtraction is not repeated.
+]]--
+--[[Truth table
+	A	B	A+B	V
+	0	0	0	0
+	0	0	1	1
+	0	1	0	0
+	0	1	1	0
+	1	0	0	0
+	1	0	1	0
+	1	1	0	1
+	1	1	1	0
+	Literally 2 cases possible for overflow
+]]--
+	local A31 = bit.check(A, 31) and 1 or 0
+	local B31 = bit.check(B, 31) and 1 or 0
+	local AB31 = bit.check(A+B, 31) and 1 or 0
+	return (A31 == B31 and A31 ~= AB31) and 1 or 0
+end	
+	
+function overflow_from_sub(A, B)
+--[[Truth table
+	A	B	A-B	V
+	0	0	0	0
+	0	0	1	0
+	0	1	0	0
+	0	1	1	1
+	1	0	0	1
+	1	0	1	0
+	1	1	0	0
+	1	1	1	0
+	Literally 2 cases possible for overflow
+]]--
+	local A31 = bit.check(A, 31) and 1 or 0
+	local B31 = bit.check(B, 31) and 1 or 0
+	local AB31 = bit.check(A-B, 31) and 1 or 0
+	return (A31 ~= B31 and A31 ~= AB31) and 1 or 0
+end
+
 --ARM Manual A5-9, A5-10, A7-64, A7-66 (THUMB)
 function utility.LSL(Rs, Offset, CPSR)
 --Imagine that the shift happens with a double-wide register, and then at the end we cut off the lower 32 bits to get the new value, and then the next bit onward is the carry flag
@@ -216,7 +282,6 @@ function utility.ASR2(Rd, Rs, CPSR)
 	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
 end
 
-
 --ARM Manual pA7-92
 function utility.ROR(Rd, Rs, CPSR)
 	--THUMB version
@@ -332,6 +397,98 @@ function utility.ROR3(immed_8, rotate_imm, CPSR)
 	local Z = (result == 0) and 1 or 0
 	--V, Q flag unchanged
 	local V = bit.check(CPSR, 28) and 1 or 0
+	local Q = bit.check(CPSR, 27) and 1 or 0
+	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
+end
+
+--ARM Manual pA7-14
+function utility.AND(Rd, Rs, CPSR)
+	local result = bit.band(Rd,Rs)
+	local N = bit.check(result,31) and 1 or 0
+	local Z = (result == 0) and 1 or 0
+	local C = bit.check(Rs, 32) and 1 or 0
+	--V, Q flag unchanged
+	local V = bit.check(CPSR, 28) and 1 or 0
+	local Q = bit.check(CPSR, 27) and 1 or 0
+	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
+end
+
+--ARM Manual pA7-43
+function utility.EOR(Rd, Rs, CPSR)
+	local result = bit.bxor(Rd, Rs)
+	local N = bit.check(result,31) and 1 or 0
+	local Z = (result == 0) and 1 or 0
+	--C, V, Q flag unchanged
+	local C = bit.check(CPSR, 29) and 1 or 0
+	local V = bit.check(CPSR, 28) and 1 or 0
+	local Q = bit.check(CPSR, 27) and 1 or 0
+	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
+end
+
+function ADC(Rs, Rn, Carry, CPSR, Sub)
+	--Insert a boolean to determine if subtract or not. Default false
+	--we need carry as well, since some instructions ignore carry flag
+	local result = (Rs + Rn + Carry)
+	local sum32 = result % 4294967296
+	local N = bit.check(sum32,31) and 1 or 0
+	local Z = (sum32 == 0) and 1 or 0
+	local C = carry_from(Rs, Rn + Carry)
+	local V = 0
+	--Can't seem to figure out how to implement SUB as ADD using ADC, so just using a bool to check which version of overflow to use
+	if Sub == true then
+		V = overflow_from_sub(Rs, bit.bnot(Rn))
+	else
+		V = overflow_from_add(Rs, Rn + Carry)
+	end
+	local Q = bit.check(CPSR, 27) and 1 or 0	--unchanged
+	-- console.log("After: N: "..N.." Z: "..Z.." C: "..C.." V: "..V.." Q: "..Q)
+	return sum32, utility.set_flag(CPSR, N, Z, C, V, Q)
+end
+
+--This version is what thumb/arm module use. maybe
+function utility.ADC(Rs, Rn, CPSR)
+	local C = bit.check(CPSR,29) and 1 or 0
+	return ADC(Rs, Rn, C, CPSR, false)
+end
+
+--ARM Manual A4-6 (ARM), A7-5, A7-6, A7-7, A7-8, A7-9, A7-10, A7-11, A7-12 (THUMB)
+function utility.ADD(Rs, Rn, CPSR)
+	return ADC(Rs, Rn, 0, CPSR, false)
+end
+
+function utility.SBC(Rs, Rn, CPSR)
+	local temp = CPSR
+	local C = bit.check(CPSR, 29) and 1 or 0
+	return ADC(Rs, bit.bnot(Rn), C, temp, true)
+end
+
+function utility.SUB(Rs, Rn, CPSR)
+	return ADC(Rs, bit.bnot(Rn), 1, CPSR, true)
+end
+
+--Arith without ADC use
+--ARM Manual A4-6 (ARM), A7-5, A7-6, A7-7, A7-8, A7-9, A7-10, A7-11, A7-12 (THUMB)
+function ADD(Rd, Rn, CPSR)
+--If Rn is PC, it should be the address of the ADD function + 8 bytes
+--CPSR isn't updated for certain situations; take this into account on the format functions
+--This is without using ADC
+	local result = (Rd + Rn) % 4294967296
+	local N = bit.check(result,31) and 1 or 0
+	local Z = (result == 0) and 1 or 0
+	local C = carry_from(Rd, Rn)
+	local V = overflow_from_add(Rd, Rn)
+	--Q flag unchanged
+	local Q = bit.check(CPSR, 27) and 1 or 0
+	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
+end
+
+function SUB(Rd, Rn, CPSR)
+	local result = Rd - Rn
+	local N = bit.check(result,31) and 1 or 0
+	local Z = (result == 0) and 1 or 0
+	local C = (borrow_from(Rd, Rn) == 1) and 0 or 1	--NOT borrow_from
+	local V = overflow_from_sub(Rd, Rn)
+	--Q flag unchanged
 	local Q = bit.check(CPSR, 27) and 1 or 0
 	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
 end
