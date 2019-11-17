@@ -44,19 +44,19 @@ Based on the trace log, it seems it's always zero'd
 end
 
 
-function LDR(Rb, Ro)
+function LDR(Base, Offset)
 --don't set flags
-	return utility.load_biz_addr(Rb + Ro, 32)
+	return utility.load_biz_addr(Base + Offset, 32)
 end
 
-function LDRB(Rb, Ro)
+function LDRB(Base, Offset)
 --don't set flags
-	return utility.load_biz_addr(Rb + Ro, 8)
+	return utility.load_biz_addr(Base + Offset, 8)
 end
 
-function LDRH(Rb, Ro)
---Add Ro to base address in Rb. Load bits 0-15 of Rd from the resulting address, and set bits 16-31 of Rd to 0.
-	local result = utility.load_biz_addr(Rb + Ro, 32)
+function LDRH(Base, Offset)
+--Add Offset to base address in Base. Load bits 0-15 of Rd fOffsetm the resulting address, and set bits 16-31 of Rd to 0.
+	local result = utility.load_biz_addr(Base + Offset, 32)
 	result = bit.band(0xFFFF, result)	-- binary 1111 1111 1111 1111
 	for i = 16, 31 do
 		bit.clear(result,i)
@@ -64,9 +64,9 @@ function LDRH(Rb, Ro)
 	return result
 end
 
-function LDSB(Rb, Ro)
---Add Ro to base address in Rb. Load bits 0-7 of Rd from the resulting address, and set bits 8-31 of Rd to bit 7.
-	local result = utility.load_biz_addr(Rb + Ro, 32)
+function LDSB(Base, Offset)
+--Add Offset to base address in Base. Load bits 0-7 of Rd fOffsetm the resulting address, and set bits 8-31 of Rd to bit 7.
+	local result = utility.load_biz_addr(Base + Offset, 32)
 	local bit7 = bit.check(result,7) and 1 or 0
 	result = bit.band(0xFF, result)	-- binary 1111 1111
 	for i = 8, 31 do
@@ -75,9 +75,9 @@ function LDSB(Rb, Ro)
 	return result
 end
 
-function LDSH(Rb, Ro)
---Add Ro to base address in Rb. Load bits 0-15 of Rd from the resulting address, and set bits 16-31 of Rd to bit 15.
-	local result = utility.load_biz_addr(Rb + Ro, 32)
+function LDSH(Base, Offset)
+--Add Offset to base address in Base. Load bits 0-15 of Rd fOffsetm the resulting address, and set bits 16-31 of Rd to bit 15.
+	local result = utility.load_biz_addr(Base + Offset, 32)
 	local bit15 = bit.check(result,15) and 1 or 0
 	result = bit.band(0xFFFF, result)	-- binary 1111 1111 1111 1111
 	for i = 16, 31 do
@@ -86,20 +86,20 @@ function LDSH(Rb, Ro)
 	return result
 end
 
-function STR(Rd, Rb, Ro)
-	utility.write_biz_addr(Rb + Ro, Rd, 32)
+function STR(Base, Offset, Value)
+	utility.write_biz_addr(Base + Offset, Value, 32)
 	return
 end
 
-function STRB(Rd, Rb, Ro)
-	utility.write_biz_addr(Rb + Ro, Rd, 8)
+function STRB(Base, Offset, Value)
+	utility.write_biz_addr(Base + Offset, Value, 8)
 	return
 end
 
-function STRH(Rd, Rb, Ro)
-	--Add Ro to base address in Rb. Store bits 0-15 of Rd at the resulting address
-	local bit_0_15 = bit.band(0xFFFF, Rd)	-- binary 1111 1111 1111 1111
-	utility.write_biz_addr(Rb + Ro, bit_0_15, 32)
+function STRH(Base, Offset, Value)
+	--Add Offset to base address in Base. Store bits 0-15 of Value at the resulting address
+	local bit_0_15 = bit.band(0xFFFF, Value)	-- binary 1111 1111 1111 1111
+	utility.write_biz_addr(Base + Offset, bit_0_15, 32)
 	return
 end
 
@@ -779,21 +779,24 @@ function thumb_format7(L, B, Ro, Rb, Rd, registers, definition)
 	local return_string = "Format 7: load/store with register offset: "
 	local end_string = " Rd, [Rb, Ro]\nRd: "..Rd.." ("..hex(registers[Rd])..") Rb: "..Rb.."("..hex(registers[Rb])..") Ro: "..Ro.."("..hex(registers[Ro])..")"
 	local OP = (L * 2) + B	--Left shift L once, then add B to combine them
+	local base = registers[Rb]
+	local offset = registers[Ro]
+	local value = registers[Rd]
 	if OP == 0 then
 	--Pre-indexed word store: Calculate the target address by adding together the value in Rb and the value in Ro. Store the contents of Rd at the address.
-		if definition ~= true then STR(registers[Rd], registers[Rb], registers[Ro]) end
+		if definition ~= true then STR(base, offset, value) end
 		return_string = return_string.."STR"..end_string
 	elseif OP == 1 then
 	--Pre-indexed byte store: Calculate the target address by adding together the value in Rb and the value in Ro. Store the byte value in Rd at the resulting address.
-		if definition ~= true then STRB(registers[Rd], registers[Rb], registers[Ro]) end
+		if definition ~= true then STRB(base, offset, value) end
 		return_string = return_string.."STRB"..end_string
 	elseif OP == 2 then
 	--Pre-indexed word load: Calculate the source address by adding together the value in Rb and the value in Ro. Load the contents of the address into Rd.
-		temp_array[Rd] = LDR(registers[Rb], registers[Ro])
+		temp_array[Rd] = LDR(base, offset)
 		return_string = return_string.."LDR"..end_string
 	elseif OP == 3 then
 	--Pre-indexed byte load: Calculate the source address by adding together the value in Rb and the value in Ro. Load the byte value at the resulting address.
-		temp_array[Rd] = LDRB(registers[Rb], registers[Ro])
+		temp_array[Rd] = LDRB(base, offset)
 		return_string = return_string.."LDRB"..end_string
 	else	--If for some reason you placed 4 or higher
 		return_string = "Format 7 error"
@@ -810,21 +813,24 @@ function thumb_format8(H, S, Ro, Rb, Rd, registers, definition)
 	local return_string = "Format 8: load/store sign-extended byte/halfword: "
 	local end_string = " Rd, [Rb, Ro]\nRd: "..Rd.." ("..hex(registers[Rd])..") Rb: "..Rb.."("..hex(registers[Rb])..") Ro: "..Ro.."("..hex(registers[Ro])..")"
 	local OP = (H * 2) + S	--Left shift H once, then add S to combine them
+	local base = registers[Rb]
+	local offset = registers[Ro]
+	local value = registers[Rd]
 	if OP == 0 then
 	--Store halfword: Add Ro to base address in Rb. Store bits 0-15 of Rd at the resulting address.
-		if definition ~= true then STRH(registers[Rd], registers[Rb], registers[Ro]) end
+		if definition ~= true then STRH(base, offset, value) end
 		return_string = return_string.."STRH"..end_string
 	elseif OP == 1 then
 	--Load sign-extended byte: Add Ro to base address in Rb. Load bits 0-7 of Rd from the resulting address, and set bits 8-31 of Rd to bit 7.
-		temp_array[Rd] = LDSB(registers[Rb], registers[Ro])
+		temp_array[Rd] = LDSB(base, offset)
 		return_string = return_string.."LDSB"..end_string
 	elseif OP == 2 then
 	--Load halfword: Add Ro to base address in Rb. Load bits 0-15 of Rd from the resulting address, and set bits 16-31 of Rd to 0.
-		temp_array[Rd] = LDRH(registers[Rb], registers[Ro])
+		temp_array[Rd] = LDRH(base, offset)
 		return_string = return_string.."LDRH"..end_string
 	elseif OP == 3 then
 	-- Load sign-extended halfword: Add Ro to base address in Rb. Load bits 0-15 of Rd from the resulting address, and set bits 16-31 of Rd to bit 15.
-		temp_array[Rd] = LDSH(registers[Rb], registers[Ro])
+		temp_array[Rd] = LDSH(base, offset)
 		return_string = return_string.."LDSH"..end_string
 	else
 		return_string = "Format 8 error"
@@ -841,22 +847,24 @@ function thumb_format9(B, L, Offset5, Rb, Rd, registers, definition)
 	local OP = (B * 2) + L	--Left shift B once, then add L to combine them
 	local return_string = "Format 9: load/store with immediate offset: "
 	local end_string = " Rd, [Rb, #Imm]\nRd: "..Rd.." ("..hex(registers[Rd])..") Rb: "..Rb.." ("..hex(registers[Rb])..") Imm: "..Offset5
-	Offset5 = B == 0 and Offset5 * 4 or Offset5	--Shift this to the left by 2 if B == 0 (word access)
+	local base = registers[Rb]
+	local offset = B == 0 and Offset5 * 4 or Offset5	--Shift this to the left by 2 if B == 0 (word access)
+	local value = registers[Rd]
 	if OP == 0 then
 	--Calculate the target address by adding together the value in Rb and Imm. Store the contents of Rd at the address.
-		if definition ~= true then STR(registers[Rd], registers[Rb], Offset5) end
+		if definition ~= true then STR(base, offset, value) end
 		return_string = return_string.."STR"..end_string
 	elseif OP == 1 then
 	--Calculate the source address by adding together the value in Rb and Imm. Load Rd from the address.
-		temp_array[Rd] = LDR(registers[Rb], Offset5)
+		temp_array[Rd] = LDR(base, offset)
 		return_string = return_string.."LDR"..end_string
 	elseif OP == 2 then
 	--Calculate the target address by adding together the value in Rb and Imm. Store the byte value in Rd at the address.
-		if definition ~= true then STRB(registers[Rd], registers[Rb], Offset5) end
+		if definition ~= true then STRB(base, offset, value) end
 		return_string = return_string.."STRB"..end_string
 	elseif OP == 3 then
 	--Calculate source address by adding together the value in Rb and Imm. Load the byte value at the address into Rd.
-		temp_array[Rd] = LDRB(registers[Rb], Offset5)
+		temp_array[Rd] = LDRB(base, offset)
 		return_string = return_string.."LDRB"..end_string
 	else
 		return_string = "Format 9 error"
@@ -874,15 +882,17 @@ function thumb_format10(L, Offset5, Rb, Rd, registers, definition)
 	local end_string = " Rd, [Rb, #Imm]\nRd: "..Rd.." ("..hex(registers[Rd])..") Rb: "..Rb.." ("..hex(registers[Rb])..") Imm: "..Offset5
 	--Format 10 shifts offset5 left by 1
 	--Doing this here so as to reuse the LDR/STR functions above
-	Offset5 = Offset5 * 2
+	local base = registers[Rb]
+	local offset = Offset5 * 2
+	local value = registers[Rd]
 	if L == 0 then 
 	--Format 10: load/store halfword
 	--Add #Imm to base address in Rb and store bits 0-15 of Rd at the resulting address.
-		if definition ~= true then STRH(registers[Rd], registers[Rb], Offset5) end
+		if definition ~= true then STRH(base, offset, value) end
 		return_string = return_string.."STRH"..end_string
 	elseif L == 1 then
 	--Add #Imm to base address in Rb. Load bits 0-15 from the resulting address into Rd and set bits 16-31 to zero.
-		temp_array[Rd] = LDRH(registers[Rb], Offset5)
+		temp_array[Rd] = LDRH(base, offset)
 		return_string = return_string.."LDRH"..end_string
 	else	--If for some reason you placed 2 or higher
 		return_string = "Format 10 error"
@@ -899,14 +909,16 @@ function thumb_format11(L, Rd, Word8, registers, definition)
 	local return_string = "Format 11: SP-relative load/store: "
 	local end_string = " Rd, [SP, #Imm]\nRd: "..Rd.." ("..hex(registers[Rd])..") SP: ("..hex(registers[7])..") Imm: "..Word8
 	--Format 11 shifts Word8 left by 2
-	Word8 = Word8 * 4
+	local base = registers[7]
+	local offset = Word8 * 4
+	local value = registers[Rd]
 	if L == 0 then	
 		--Add unsigned offset (255 words, 1020 bytes) in Imm to the current value of the SP (R7). Store the contents of Rd at the resulting address.
-		if definition ~= true then STR(registers[Rd], registers[7], Word8) end
+		if definition ~= true then STR(base, offset, value) end
 		return_string = return_string.."STR"..end_string
 	elseif L == 1 then
 		--Add unsigned offset (255 words, 1020 bytes) in Imm to the current value of the SP (R7). Load the word from the resulting address into Rd.
-		temp_array[Rd] = LDR(registers[7], Word8)
+		temp_array[Rd] = LDR(base, offset)
 		return_string = return_string.."LDR"..end_string
 	else	--If for some reason you placed 2 or higher
 		return_string = "Format 11 error"
