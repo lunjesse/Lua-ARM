@@ -70,6 +70,37 @@ In summary: Bits 27-24
 	Software Interupt
 ]]--
 
+
+local utility = require('utility')
+local asm_arm_module = {}
+local arm_table = {
+--bits 27 to 20 = {bits 7 to 4 = {Operation, Shift function}}
+--Use of table example: arm_table[bits_27_20][bits_7_6_5_4][1](Rs, Rn)
+--http://imrannazar.com/ARM-Opcode-Map
+[0] = {[0] = {utility.AND, shift_lli}, [1] = {utility.AND, shift_llr}, [2] = {utility.AND, shift_lri}, [3] = {utility.AND, shift_lrr}, [4] = {utility.AND, shift_ari}, [5] = {utility.AND, shift_arr}, [6] = {utility.AND, shift_rri}, [7] = {utility.AND, shift_rrr}, [8] = {utility.AND, shift_lli}},
+[1] = {[0] = {utility.AND, shift_lli}, [1] = {utility.AND, shift_llr}, [2] = {utility.AND, shift_lri}, [3] = {utility.AND, shift_lrr}, [4] = {utility.AND, shift_ari}, [5] = {utility.AND, shift_arr}, [6] = {utility.AND, shift_rri}, [7] = {utility.AND, shift_rrr}, [8] = {utility.AND, shift_lli}},
+[2] = {[0] = {utility.EOR, shift_lli}, [1] = {utility.EOR, shift_llr}, [2] = {utility.EOR, shift_lri}, [3] = {utility.EOR, shift_lrr}, [4] = {utility.EOR, shift_ari}, [5] = {utility.EOR, shift_arr}, [6] = {utility.EOR, shift_rri}, [7] = {utility.EOR, shift_rrr}, [8] = {utility.EOR, shift_lli}},
+[3] = {[0] = {utility.EOR, shift_lli}, [1] = {utility.EOR, shift_llr}, [2] = {utility.EOR, shift_lri}, [3] = {utility.EOR, shift_lrr}, [4] = {utility.EOR, shift_ari}, [5] = {utility.EOR, shift_arr}, [6] = {utility.EOR, shift_rri}, [7] = {utility.EOR, shift_rrr}, [8] = {utility.EOR, shift_lli}},
+[4] = {[0] = {utility.SUB, shift_lli}, [1] = {utility.SUB, shift_llr}, [2] = {utility.SUB, shift_lri}, [3] = {utility.SUB, shift_lrr}, [4] = {utility.SUB, shift_ari}, [5] = {utility.SUB, shift_arr}, [6] = {utility.SUB, shift_rri}, [7] = {utility.SUB, shift_rrr}, [8] = {utility.SUB, shift_lli}},
+[5] = {[0] = {utility.SUB, shift_lli}, [1] = {utility.SUB, shift_llr}, [2] = {utility.SUB, shift_lri}, [3] = {utility.SUB, shift_lrr}, [4] = {utility.SUB, shift_ari}, [5] = {utility.SUB, shift_arr}, [6] = {utility.SUB, shift_rri}, [7] = {utility.SUB, shift_rrr}, [8] = {utility.SUB, shift_lli}},
+[6] = {[0] = {utility.RSB, shift_lli}, [1] = {utility.RSB, shift_llr}, [2] = {utility.RSB, shift_lri}, [3] = {utility.RSB, shift_lrr}, [4] = {utility.RSB, shift_ari}, [5] = {utility.RSB, shift_arr}, [6] = {utility.RSB, shift_rri}, [7] = {utility.RSB, shift_rrr}, [8] = {utility.RSB, shift_lli}},
+[7] = {[0] = {utility.RSB, shift_lli}, [1] = {utility.RSB, shift_llr}, [2] = {utility.RSB, shift_lri}, [3] = {utility.RSB, shift_lrr}, [4] = {utility.RSB, shift_ari}, [5] = {utility.RSB, shift_arr}, [6] = {utility.RSB, shift_rri}, [7] = {utility.RSB, shift_rrr}, [8] = {utility.RSB, shift_lli}},
+[8] = {[0] = {utility.ADD, shift_lli}, [1] = {utility.ADD, shift_llr}, [2] = {utility.ADD, shift_lri}, [3] = {utility.ADD, shift_lrr}, [4] = {utility.ADD, shift_ari}, [5] = {utility.ADD, shift_arr}, [6] = {utility.ADD, shift_rri}, [7] = {utility.ADD, shift_rrr}, [8] = {utility.ADD, shift_lli}},
+[9] = {[0] = {utility.ADD, shift_lli}, [1] = {utility.ADD, shift_llr}, [2] = {utility.ADD, shift_lri}, [3] = {utility.ADD, shift_lrr}, [4] = {utility.ADD, shift_ari}, [5] = {utility.ADD, shift_arr}, [6] = {utility.ADD, shift_rri}, [7] = {utility.ADD, shift_rrr}, [8] = {utility.ADD, shift_lli}},
+[10] = {[0] = {utility.ADC, shift_lli}, [1] = {utility.ADC, shift_llr}, [2] = {utility.ADC, shift_lri}, [3] = {utility.ADC, shift_lrr}, [4] = {utility.ADC, shift_ari}, [5] = {utility.ADC, shift_arr}, [6] = {utility.ADC, shift_rri}, [7] = {utility.ADC, shift_rrr}, [8] = {utility.ADC, shift_lli}},
+[11] = {[0] = {utility.ADC, shift_lli}, [1] = {utility.ADC, shift_llr}, [2] = {utility.ADC, shift_lri}, [3] = {utility.ADC, shift_lrr}, [4] = {utility.ADC, shift_ari}, [5] = {utility.ADC, shift_arr}, [6] = {utility.ADC, shift_rri}, [7] = {utility.ADC, shift_rrr}, [8] = {utility.ADC, shift_lli}},
+[12] = {[0] = {utility.SBC, shift_lli}, [1] = {utility.SBC, shift_llr}, [2] = {utility.SBC, shift_lri}, [3] = {utility.SBC, shift_lrr}, [4] = {utility.SBC, shift_ari}, [5] = {utility.SBC, shift_arr}, [6] = {utility.SBC, shift_rri}, [7] = {utility.SBC, shift_rrr}, [8] = {utility.SBC, shift_lli}},
+[13] = {[0] = {utility.SBC, shift_lli}, [1] = {utility.SBC, shift_llr}, [2] = {utility.SBC, shift_lri}, [3] = {utility.SBC, shift_lrr}, [4] = {utility.SBC, shift_ari}, [5] = {utility.SBC, shift_arr}, [6] = {utility.SBC, shift_rri}, [7] = {utility.SBC, shift_rrr}, [8] = {utility.SBC, shift_lli}},
+[14] = {[0] = {utility.RSC, shift_lli}, [1] = {utility.RSC, shift_llr}, [2] = {utility.RSC, shift_lri}, [3] = {utility.RSC, shift_lrr}, [4] = {utility.RSC, shift_ari}, [5] = {utility.RSC, shift_arr}, [6] = {utility.RSC, shift_rri}, [7] = {utility.RSC, shift_rrr}, [8] = {utility.RSC, shift_lli}},
+[15] = {[0] = {utility.RSC, shift_lli}, [1] = {utility.RSC, shift_llr}, [2] = {utility.RSC, shift_lri}, [3] = {utility.RSC, shift_lrr}, [4] = {utility.RSC, shift_ari}, [5] = {utility.RSC, shift_arr}, [6] = {utility.RSC, shift_rri}, [7] = {utility.RSC, shift_rrr}, [8] = {utility.RSC, shift_lli}},
+[16] = nil,
+[17] = {[0] = {utility.TST, shift_lli}, [1] = {utility.TST, shift_llr}, [2] = {utility.TST, shift_lri}, [3] = {utility.TST, shift_lrr}, [4] = {utility.TST, shift_ari}, [5] = {utility.TST, shift_arr}, [6] = {utility.TST, shift_rri}, [7] = {utility.TST, shift_rrr}, [8] = {utility.TST, shift_lli}},
+[18] = nil,
+[19] = {[0] = {utility.TEQ, shift_lli}, [1] = {utility.TEQ, shift_llr}, [2] = {utility.TEQ, shift_lri}, [3] = {utility.TEQ, shift_lrr}, [4] = {utility.TEQ, shift_ari}, [5] = {utility.TEQ, shift_arr}, [6] = {utility.TEQ, shift_rri}, [7] = {utility.TEQ, shift_rrr}, [8] = {utility.TEQ, shift_lli}},
+[20] = nil,
+[21] = {[0] = {utility.CMP, shift_lli}, [1] = {utility.CMP, shift_llr}, [2] = {utility.CMP, shift_lri}, [3] = {utility.CMP, shift_lrr}, [4] = {utility.CMP, shift_ari}, [5] = {utility.CMP, shift_arr}, [6] = {utility.CMP, shift_rri}, [7] = {utility.CMP, shift_rrr}, [8] = {utility.CMP, shift_lli}},
+}
+
 function cond(code, CPSR)
 	local temp = CPSR
 	local N = bit.rshift(CPSR, 31) % 2
@@ -95,85 +126,146 @@ function cond(code, CPSR)
 	else return false, "ERROR\t" end
 end
 
+function shift_lli(Operand2, registers)
+	--Logical Shift Left, Immediate
+	--This is when bit 25 is 0, and bit 4 of Operand2 is 0
+	--Take bits 11, 10, 9, 8, 7 of Operand2 as the 5 bit shift amount
+	--Bits 6, 5 is the shift type. In this case, it's 00, hence it's logical left shift by a 5 bit integer
+	--Technically op2_str is supposed to be just Rm if shift amount is 0
+	local Rm_num = bit.band(Operand2, 0xF)	--binary 1111 (bits 3, 2, 1, 0)
+	local Rs = bit.rshift(Operand2, 7)	--Immediate value to shift as (bits 11 to 7)
+	local op2_str = "R"..Rm_num..", LSL #"..Rs
+	return utility.LSL(registers[Rm_num], Rs, registers.CPSR), op2_str
+end
 
-function arm_format1(Cond, I, Opcode, S, Rn, Rd, Operand2, registers)
+function shift_llr(Operand2, registers)
+	--Logical Shift Left, Register
+	--This is when bit 25 is 0, and bit 4 of Operand2 is 1
+	--Take bits 11, 10, 9, 8 of Operand2 as the register number to obtain the shift amount
+	--Bits 6, 5 is the shift type. In this case, it's 00, hence it's logical left shift by a value in a register
+	local Rm_num = bit.band(Operand2, 0xF)	--binary 1111 (bits 3, 2, 1, 0)
+	local Rs_num = bit.rshift(Operand2, 8)	--Register number (bits 11 to 8)
+	local op2_str = "R"..Rm_num..", LSL #"..Rs_num
+	return utility.LSL(registers[Rm_num], registers[Rs_num], registers.CPSR), op2_str
+end
+
+function shift_lri(Operand2, registers)
+	--Logical Shift Right, Immediate
+	--This is when bit 25 is 0, and bit 4 of Operand2 is 0
+	--Take bits 11, 10, 9, 8, 7 of Operand2 as the 5 bit shift amount
+	--Bits 6, 5 is the shift type. In this case, it's 01, hence it's logical right shift by a 5 bit integer
+	local Rm_num = bit.band(Operand2, 0xF)	--binary 1111 (bits 3, 2, 1, 0)
+	local Rs = bit.rshift(Operand2, 7)	--Immediate value to shift as (bits 11 to 7)
+	local op2_str = "R"..Rm_num..", LSR #"..Rs
+	return utility.LSR1(registers[Rm_num], Rs, registers.CPSR), op2_str
+end
+
+function shift_lrr(Operand2, registers)
+	--Logical Shift Right, Register
+	--This is when bit 25 is 0, and bit 4 of Operand2 is 1
+	--Take bits 11, 10, 9, 8 of Operand2 as the register number to obtain the shift amount
+	--Bits 6, 5 is the shift type. In this case, it's 01, hence it's logical right shift by a value in a register
+	local Rm_num = bit.band(Operand2, 0xF)	--binary 1111 (bits 3, 2, 1, 0)
+	local Rs_num = bit.rshift(Operand2, 8)	--Register number (bits 11 to 8)
+	local op2_str = "R"..Rm_num..", LSR #"..Rs_num
+	return utility.LSR2(registers[Rm_num], registers[Rs_num], registers.CPSR), op2_str
+end
+
+function shift_ari(Operand2, registers)
+	--Arithmetic Shift Right, Immediate
+	--This is when bit 25 is 0, and bit 4 of Operand2 is 0
+	--Take bits 11, 10, 9, 8, 7 of Operand2 as the 5 bit shift amount
+	--Bits 6, 5 is the shift type. In this case, it's 10, hence it's arithmetic right shift by a 5 bit integer
+	local Rm_num = bit.band(Operand2, 0xF)	--binary 1111 (bits 3, 2, 1, 0)
+	local Rs = bit.rshift(Operand2, 7)	--Immediate value to shift as (bits 11 to 7)
+	local op2_str = "R"..Rm_num..", ASR #"..Rs
+	return utility.ASR1(registers[Rm_num], Rs, registers.CPSR), op2_str
+end
+
+function shift_arr(Operand2, registers)
+	--Arithmetic Shift Right, Register
+	--This is when bit 25 is 0, and bit 4 of Operand2 is 1
+	--Take bits 11, 10, 9, 8 of Operand2 as the register number to obtain the shift amount
+	--Bits 6, 5 is the shift type. In this case, it's 10, hence it's arithmetic right shift by a value in a register
+	local Rm_num = bit.band(Operand2, 0xF)	--binary 1111 (bits 3, 2, 1, 0)
+	local Rs_num = bit.rshift(Operand2, 8)	--Register number (bits 11 to 8)
+	local op2_str = "R"..Rm_num..", ASR #"..Rs_num
+	return utility.ASR2(registers[Rm_num], registers[Rs_num], registers.CPSR), op2_str
+end
+
+function shift_rri(Operand2, registers)
+	--Rotate Right, Immediate
+	--This is when bit 25 is 0, and bit 4 of Operand2 is 0
+	--Take bits 11, 10, 9, 8, 7 of Operand2 as the 5 bit rotate amount
+	--Bits 6, 5 is the shift type. In this case, it's 11, hence it's rotate right by a 5 bit integer
+	local Rm_num = bit.band(Operand2, 0xF)	--binary 1111 (bits 3, 2, 1, 0)
+	local Rs = bit.rshift(Operand2, 7)	--Immediate value to shift as (bits 11 to 7)
+	local op2_str = "R"..Rm_num..", ROR #"..Rs
+	return bit.ror(registers[Rm_num], Rs), op2_str
+end
+
+function shift_rrr(Operand2, registers)
+	--Rotate Right, Register
+	--This is when bit 25 is 0, and bit 4 of Operand2 is 1
+	--Take bits 11, 10, 9, 8 of Operand2 as the register number to obtain the rotate amount
+	--Bits 6, 5 is the shift type. In this case, it's 11, hence it's rotate right by a value in a register
+	local Rm_num = bit.band(Operand2, 0xF)	--binary 1111 (bits 3, 2, 1, 0)
+	local Rs_num = bit.rshift(Operand2, 8)	--Register number (bits 11 to 8)
+	local op2_str = "R"..Rm_num..", ROR #"..Rs_num
+	return utility.ROR2(registers[Rm_num], registers[Rs_num], registers.CPSR), op2_str
+end
+
+function shift_imm(Operand2, registers)
+	--Rotate Right, Immediate 2.
+	--This is when bit 25 is 1.
+	--Bits 11, 10, 9, 8 of Operand2 is a value, which you multiply by 2, which specifies how much to rotate right
+	--Bits 7 to 0 is the immediate value in which you apply the above to.
+	--For the op2_str, use this:  #<immed_8>, <rotate_amount> where <rotate_amount> = 2 * rotate_imm.
+	local rotate_imm = bit.rshift(Operand2, 8)	--(bits 11 to 8); Multiply by 2 at ROR3 instead
+	local immed_8 = bit.band(Operand2, 0xFF)	--binary 1111 1111 (bits 7 to 0)
+	local op2_str = "#"..immed_8..", "..rotate_imm*2
+	return utility.ROR3(immed_8, rotate_imm, registers.CPSR), op2_str
+end
+
+function arm_format1(Cond, I, Opcode, S, bits_27_20, bits_7_6_5_4, Rn, Rd, Operand2, registers)
 --Data Processing/PSR Transfer
 --Rn is always first operand
 --Rd is always destination
 --I == 0 operand 2 is a shifted register. 1 means operand 2 is a rotated immediate offset
 --Opcode is what determines the action to do
 --S == 0 do not set condition code. 1 means set condition codes
+--bits_27_20 and bits_7_6_5_4 are for the arm lookup table
+--Operand2 are bits 0-11
 --Binary 1111 or 1111 1111 respectively.
-	local Rm = 0
-	local Shift = 0
-	local Rotate = 0
-	local Shift = bit.ror	--default choice
-	local op2_str = ", ROR "
 	local return_string = ""
 	local S_str = (S == 1) and "S\t" or ""	--So it'll be eg. ADD EQ S; technically there's no space, but fuck that
 	local cond_val, cond_str = cond(Cond, registers.CPSR)
-	--[[
-	31	30	29	28	27	26	25	24	23	22	21	20	19	18	17	16	15	14	13	12	11	10	9	8	7	6	5	4	3	2	1	0
-C	C	C	C	0	0	I	OP	OP	OP	OP	S	RN	RN	RN	RN	RD	RD	RD	RD	OP2	OP2	OP2	OP2	OP2	OP2	OP2	OP2	OP2	OP2	OP2	OP2	Data processing instructions
-C	C	C	C	0	0	0	1	0	P	0	0	1	1	1	1	RD	RD	RD	RD	0	0	0	0	0	0	0	0	0	0	0	0	MRS (transfer PSR contents to a register)
-C	C	C	C	0	0	0	1	0	P	1	0	1	0	0	1	1	1	1	1	0	0	0	0	0	0	0	0	RM	RM	RM	RM	MSR (transfer register contents to PSR)
-C	C	C	C	0	0	I	1	0	P	1	0	1	0	0	0	1	1	1	1	S	S	S	S	S	S	S	S	S	S	S	S	MSR  (transfer register contents or immdiate value to PSR flag bits only)
-OP for PSR corresponds to 
-1000	TST
-1001	TEQ
-1010	CMP
-1011	CMN
-S is always 0 for PSR Transfer
-	]]--
+	local shifted_op2, op2_str = arm_table[bits_27_20][bits_7_6_5_4][2](Operand2, registers)	--Apparently, you just give the Operand2 as is
+	--[[If R15 (the PC) is used as an operand in a data processing instruction the register is
+used directly.
+The PC value will be the address of the instruction, plus 8 or 12 bytes due to instruction
+prefetching. If the shift amount is specified in the instruction, the PC will be 8 bytes
+ahead. If a register is used to specify the shift amount the PC will be 12 bytes ahead
+]]--
+
+	local temp_array = registers
+	local Rn_value = registers[15]
+	if Rn == 15 then
+		--Shifted immediate is always even for bits 4-7.
+		Rn_value = Rn_value + 8--check if 8 or 12 in GBA
+	end
 	local MRS_flag = (Opcode == 8 || Opcode == 10) and S == 0 and Rn == 0xF and Operand2 == 0
 	local MSR1_flag = (Opcode == 9 || Opcode == 11) and S == 0 and Rn == 0x9 and Rd == 0xF and bit.band(Operand2,0xFF0) == 0
 	local MSR2_flag = (Opcode == 9 || Opcode == 11) and S == 0 and Rn == 0x8 and Rd == 0xF
 	local is_DataProc = (MRS_flag == false and MSR1_flag == false and MSR2_flag == false)
 	
 	--This applies to both Data Processing & PSR Transfer
-	if I == 0 then	--Operand 2 is a (shifted) register
-		local Rm_num = bit.band(Operand2, 0xF)	--binary 1111
-		Rm = registers[Rm_num]		
-		local Shift_flag = bit.rshift(Operand2, 4) % 2
-		local Rs = 0
-		local Shift_type = bit.rshift(bit.band(Operand2, 0x60),5)	--binary 0110 0000
-		--Define which shift operation to use. As long as I == 0, this is always bits 5 and 6 in operand2
-		if Shift_type == 0 then
-			Shift = bit.lshift
-			op2_str = ", LSL "
-		elseif Shift_type == 1 then
-			Shift = bit.rshift 
-			op2_str = ", LSR "
-		elseif Shift_type == 2 then
-			Shift = bit.arshift
-			op2_str = ", ASR "
-		end
-		--If flag (bit 4 of operand2) == 0 then we shift operand2 by an immediate value; 
-		--else we take another register and shift by the contents in that
-		--Either way, call this thing Rs
-		if Shift_flag == 0 then
-			Rs = bit.rshift(Operand2, 7)	--Immediate value to shift as
-			op2_str = "R"..Rm_num..op2_str.."#"..Rs
-		else
-			local Rs_num = bit.rshift(Operand2, 8)	--Register number
-			Rs = registers[Rs_num]
-			op2_str = "R"..Rm_num..op2_str.."R"..Rs_num
-		end
-		--Do we set carry flags here?? Need to check if shifting at this point also affects CPSR
-		--This should also work for PSR, since Shfit == 0000000
-		Rm = Shift(Rm, Rs)
-	else	--Operand2 is a (rotated) immediate value
-		Rm = bit.band(Operand2, 0xFF)	--binary 1111 1111
-		Rotate = bit.rshift(Operand2, 8)
-		--op2_str should be ", ROR " here
-		--Also, both values should be immediate; IMM ROR Rotate basically
-		op2_str = "#"..Rm..op2_str.."#"..Rotate
-		Rm = Shift(Rm, Rotate)	--This is why rotate is default
-	end
+	
 	if is_DataProc == true then
 	--<opcode>{cond}{S} Rd, <Op2>
 	--<opcode>{cond} Rn, <Op2>
 	--<opcode>{cond}{S} Rd, Rn, <Op2>
+		temp_array[Rd], temp_array.CPSR = arm_table[bits_27_20][bits_7_6_5_4][1](registers[Rn], shifted_op2, registers.CPSR)
 		if Opcode == 0 then
 			return_string = "AND\t"..cond_str..S_str.."R"..Rd..", R"..Rn..", "..op2_str
 		elseif Opcode == 1 then
@@ -307,57 +399,91 @@ function arm_format5(Cond, Rn, registers)
 	return return_string
 end
 
-function arm_format6(Cond, P, U, W, L, Rn, Rd, S, H, Rm, registers)
+function arm_format6(Cond, P, U, bit22, W, L, Rn, Rd, bits_11_0, registers)
 --Halfword Data Transfer: register offset
---P == 0 add/subtract offset after transfer. 1 means add/subtract before transfer
---Example: Preindex LDR R1, [R2, #100] load R1 from address located in R2+100
---Example: Postindex LDR R1, [R2], #100 load from address located in R2, then +100
---If P == 1, treat W as 0
---U == 0 subtract offset from base. 1 means add offset to base
---W == 0 no write back. 1 means write address to base
---L == 0 store to memory. 1 means load from memory
---Rn base register
---Rd source/destination register
---S H act as opcode
---Rm Offset register
---Try treating P U W L as a single opcode
---<LDR|STR>{cond}<H|SH|SB> Rd,<address>
-	local opcode = (P * 8) + (U * 4) + (W * 2) + L
-	local opcode2 = (S * 2) + H
+--Halfword Data Transfer: immediate offset
+--ARM Manual A5.33
+--[[
+	P  U  22  W  L .. S H are bits 
+	24 23 22 21 20 .. 6 5 respectively
+	P (bit 24)
+		P == 0
+			Indicates the use of post-indexed addressing. The base register value is used for
+			the memory address, and the offset is then applied to the base register value and
+			written back to the base register.
+		P == 1
+			Indicates the use of offset addressing or pre-indexed addressing (the W bit
+			determines which). The memory address is generated by applying the offset to
+			the base register value.
+	U (bit 23)
+		U == 0
+			Offset is subtracted from base
+		U == 1
+			OFfset is added to base
+	(bit 22)
+		bit 22 == 0
+			Register offset/index
+		bit 22 == 1
+			Immediate offset/index
+	W (bit 21)
+		This thing has 2 meanings
+		Additionally, if W == 1, Rn == 15, result is UNPREDICTABLE
+		P == 0
+			W == 0
+				The W bit must be 0 or the instruction is UNPREDICTABLE
+			W == 1
+				UNPREDICTABLE
+		P == 1
+			W == 0
+				base register is not updated. Treat as offset addressing
+			w == 1
+				address defined as base register + offset is written back to the base register. 
+				This is called pre-indexed addressing, and is literally the same as offset addressing but you write back
+	L, S, H (bits 20, 6, 5)
+		L == 0
+			Store byte or word
+		L == 1
+			Load byte or word
+		S == 0, H == 0
+			SWP (wrong format to use; give error)
+		S == 0, H == 1
+			Unsigned halfword LDRH/STRH
+		S == 1, H == 0
+			Signed byte LDRSB
+		S == 1, H == 1
+			Signed halfword LDRSH
+		There are no STRB, STRSH; STRB uses the "Single Data Transfer" format, while STRSH is the same as STRH
+	Plan:
+		1. Check L, S, H bit to find out which action to use: LDR/STR(B).
+		2. Check I bit to find out the offset
+		3. Check U bit to determine if +/- offset
+	]]--
+	local SHbits = bit.rshift(bit.band(bits_11_0, 0x60),5)	--Keep only bits 6 and 5. 0x60 is binary 0110 0000
+	local bits_11_10_9_8 = bit.rshift(bit.band(bits_11_0, 0xF00),8)	--Binary 1111 0000 0000
+	local bits_3_2_1_0 = bit.band(bits_11_0, 0xF)	--Binary 1111
 	local cond_val, cond_str = cond(Cond, registers.CPSR)
+	local base = registers[Rn]
+	base = (Rn == 15) and base + 8 or base	--If P bit is 0, or P is 1 and W is 1, this is UNPREDICTABLE
+	local offset = 0
+	local value = registers[Rd]
 	local return_string = "SWP\t"	--assume opcode is 0 at start
+	local offset_string = (U == 1) and "+" or "-"
+	local addressing_mode_str = (P == 0) and "["..Rn..", " or "["..Rn.."], "
+	--[[
+	Return string holds LDR|STR{<cond>}{B}{T}	<Rd>, ..offset_string
+	offset_string holds #+/-<offset_8>, #+/-<Rm>
+	addressing_mode_str holds [<Rn>..offset_string], [<Rn>]..offset_string
+	]]--
 	local action = SWP
-	local error1 = opcode2 > 3	--not sure how that would occur, but ok
+	local error1 = SHbits > 3	--not sure how that would occur, but ok
 --Getting mixed results here; Arm Instruction Set pdf claims W == 1 and Rn == 15 should not be used, while the
 --Arm Manual claims Rn == 15 alone is either unpredictable, or must +8/12. Seems to be instruction based
-	local error2 = (W == 1 and Rn == 15)	
-	--LDRH (A4-54); LDRSB (A4-56); LDRSH (A4-56)
-	--RD == 15 unpredictable
-	--If W == 1, Rd == Rn then unpredictable
-	--STRH (A4-204)
-	--RD == 15 unpredictable 
-	--(A2-9) This means its either banned, +8, or +12. Have fun :)
-	--If W == 1, Rd == Rn then unpredictable
-	--Load/Store Immediate offset (A5-35)
-	--If Rn == 15, value is address of the instruction + 8
-	--Load/Store Register offset (A5-36)
-	--If Rn == 15, value is address of the instruction + 8
-	--Rm == 15 is unpredictable
-	--Load/Store Immediate pre-indexed (P, W == 1; bit22 == 1) (A5-37)
-	--Rn == 15 is unpredictable
-	--Load/Store Register pre-indexed (P, W == 1; bit22 == 0) (A5-38)
-	--Rn == 15 is unpredictable
-	--Rm == 15 is unpredictable
-	--Rm == Rn is unpredictable (ARMv5 and below; including GBA) 
-	--Load/Store Register post-indexed (P, W == 0; bit22 == 1) (A5-39)
-	--Rn == 15 is unpredictable
-	--Load/Store Register post-indexed (P, W == 0; bit22 == 0) (A5-40)
-	--Rn == 15 is unpredictable
-	--Rm == 15 is unpredictable
-	--Rm == Rn is unpredictable (ARMv5 and below; including GBA) 
-	local error3 = (Rm == 15) --R15 should not be the register offset
-	local error4 = (S == H and S == 0)	--If S == H == 0, this is immediately treated as Single Data Swap/Multiply/Multiply Long
-	local error5 = (P == 0 and W == 1)	--W must be 0 if P is 0 
+	local error2 = (W == 1 and Rn == 15)
+	local error3 = (bits_3_2_1_0 == 15) --R15 should not be the register offset
+	local error4 = (SHbits == 0)	--If S == H == 0, this is immediately treated as Single Data Swap/Multiply/Multiply Long
+	local error5 = (bit.band(bits_11_0,0x90) ~= 0x90) --bits 7 and 4 are not 1; that's binary 1001 0000
+	local error6 = (P == 0 and W == 1)	--W must be 0 if P is 0 
+	
 	
 --[[Only LDRH/STRH/LDRSB/LDRSH are legal; STR, STRB, STRSH, STRSB are not allowed in this format
 (Arm Manual A5.3, A5-34)
@@ -368,90 +494,261 @@ So if this occurs, ignore it, and use H bit to determine the instruction.
 Signed bytes and halfwords can be stored with the same STRB and STRH instructions as are
 used for unsigned quantities, so no separate signed store instructions are provided.
 ]]--
-	if error1 == true then
-		return "Format 6: Invalid Opcode"
+	--Determine which action to use: LDR/STR(B)
+	if error1 == true then	--how?
+		return registers, "Format 6: Invalid S H flags; bits 5 and 6 over 3"
 	end
 	if error2 == true then
-		return "Format 6: STR/STRB/STRSH/STRSB not allowed" 
+		return registers, "Format 6: STR/STRB/STRSH/STRSB not allowed" 
+	end
+	if error3 == true then
+		return registers, "Format 6: Bits 0 to 3 must not be 15 if register offset" 
+	end
+	if error4 == true then
+		return registers, "Format 6: Wrong addressing mode for SWP; bits 5 and 6 must not be 0 simultaneously" 
+	end
+	if error5 == true then
+		return registers, "Format 6: Wrong addressing mode for MUL; bits 4 and 7 must be 1" 
+	end
+	if error6 == true then
+		return registers, "Format 6: W must be 0 if P is 0" 
 	end
 	if L == 0 then
-		action = STRH
-		return_string = "STRH\t"
+		if SHbits == 0 then	--SWP
+			return_string = "Error: Wrong addressing mode: SWP"
+		elseif SHbits == 1 then 
+			action = utility.STRH
+			return_string = "STR"..cond_str.."H"
+		elseif SHbits > 1 then --Load/Store doubleword, but not supported in ARMv4
+		--Also, STRB, STRSH are the same as addressing mode 2 and STRH, so not supported here
+			return_string = "Error: Doubleword not supported in ARMv4"
+		end
 	else
-		-- if opcode2 == 0 then
-			-- return_string = return_string
-		if opcode2 == 1 then
-			action = LDRH
-			return_string = "LDRH\t"
-		elseif opcode2 == 2 then
-			action = LDRSB
-			return_string = "LDRSB\t"
-		elseif opcode2 == 3 then
-			action = LDRSH
-			return_string = "LDRSH\t"
+		if SHbits == 0 then	
+			return_string = "Error: Wrong addressing mode: SWP"
+		elseif SHbits == 1 then --Load unsigned halfword
+			action = utility.LDRH
+			return_string = "LDR"..cond_str.."H"
+		elseif SHbits == 2 then --Load signed byte
+			action = utility.LDRSB
+			return_string = "LDR"..cond_str.."SB"
+		elseif SHbits == 3 then --Load signed halfword
+			action = utility.LDRSH
+			return_string = "LDR"..cond_str.."SH"
 		end
 	end
-	--See examples in Arm Manual A3.11.4, A3-23; not the same instructions but eh
-	if opcode == 0 then
-	--P == 0; U == 0; W == 0; L == 0
-	--Post index; Subtract Rm from Rn; Don't write back to Rn; Store to memory
-		--Rd = 
-	elseif opcode == 1 then
-	--P == 0; U == 0; W == 0; L == 1
-	--Post index; Subtract Rm from Rn; Don't write back to Rn; Load from memory
-	elseif opcode == 2 then
-	--P == 0; U == 0; W == 1; L == 0
-	--Post index; Subtract Rm from Rn; Write back to Rn; Store to memory
-	elseif opcode == 3 then
-	--P == 0; U == 0; W == 1; L == 1
-	--Post index; Subtract Rm from Rn; Write back to Rn; Load from memory
-	elseif opcode == 4 then
-	--P == 0; U == 1; W == 0; L == 0
-	--Post index; Add Rm to Rn; Don't write back to Rn; Store to memory
-	elseif opcode == 5 then
-	--P == 0; U == 1; W == 0; L == 1
-	--Post index; Add Rm to Rn; Don't write back to Rn; Load from memory
-	elseif opcode == 6 then
-	--P == 0; U == 1; W == 1; L == 0
-	--Post index; Add Rm to Rn; Write back to Rn; Store to memory
-	elseif opcode == 7 then
-	--P == 0; U == 1; W == 1; L == 1
-	--Post index; Add Rm to Rn; Write back to Rn; Load from memory
-	elseif opcode == 8 then
-	--P == 1; U == 0; W == 0; L == 0
-	--Pre index; Subtract Rm from Rn; Don't write back to Rn; Store to memory
-	elseif opcode == 9 then
-	--P == 1; U == 0; W == 0; L == 1
-	--Pre index; Subtract Rm from Rn; Don't write back to Rn; Load from memory
-	elseif opcode == 10 then
-	--P == 1; U == 0; W == 1; L == 0
-	--Pre index; Subtract Rm from Rn; Write back to Rn; Store to memory
-	elseif opcode == 11 then
-	--P == 1; U == 0; W == 1; L == 1
-	--Pre index; Subtract Rm from Rn; Write back to Rn; Load from memory
-	elseif opcode == 12 then
-	--P == 1; U == 1; W == 0; L == 0
-	--Pre index; Add Rm to Rn; Don't write back to Rn; Store to memory
-	elseif opcode == 13 then
-	--P == 1; U == 1; W == 0; L == 1
-	--Pre index; Add Rm to Rn; Don't write back to Rn; Load from memory
-	elseif opcode == 14 then
-	--P == 1; U == 1; W == 1; L == 0
-	--Pre index; Add Rm to Rn; Write back to Rn; Store to memory
-	elseif opcode == 15 then
-	--P == 1; U == 1; W == 1; L == 1
-	--Pre index; Add Rm to Rn; Write back to Rn; Load from memory
-	
-	
+	return_string = return_string.."\t"..Rd..", "
+	--Determine how the offset is calculated
+	if bit22 == 0 then	--register offset
+		if bits_11_10_9_8 > 0 then
+			console.log("Warning. Bits 8 to 11 are not 0")
+		end
+		offset = registers[bits_3_2_1_01]
+		offset_string = offset_string..bits_3_2_1_0
+	else	--immediate offset
+	--bits 8 to 11 shifted to the left by 4, plus bits 0 to 3 for offset
+		offset = bits_11_10_9_8 * 2^8 + bits_3_2_1_0
+		offset_string = offset_string..offset
 	end
+	offset = (U == 1) and offset or -1*offset
+	addressing_mode_str = addressing_mode_str..shift_str
+	if P == 0 then	--Post index
+		--W should never be 1 here; ie. no write back
+		temp_array[Rd] = action(base, 0, value)	--Don't implement writeback until later
+	else	--Preindex/Offset addressing
+		temp_array[Rd] = action(base, offset, value)	--Don't implement writeback until later
+		addressing_mode_str = addressing_mode_str.."]"
+		if W == 0 then
+			temp_array[Rd] = base
+		else
+			temp_array[Rd] = base + offset
+			addressing_mode_str = addressing_mode_str.."!"
+		end
+	end
+	return_string = return_string..addressing_mode_str
+	return temp_array, return_string
 end
 
-function arm_format7()
---Halfword Data Transfer: immediate offset
-end
-
-function arm_format8()
+function arm_format7(Cond, I, P, U, W, L, Rn, Rd, Offset12, registers)
 --Single Data Transfer
+	local temp_array = registers
+	local bits_11_4 = bit.rshift(Offset12, 4)	--shift amount
+	local bits_3_2_1_0 = bit.band(Offset12, 0xF)	--Rm, if register offset
+	local return_string = ""
+	local cond_val, cond_str = cond(Cond, registers.CPSR)
+	local shift_str = U == 1 and "+" or "-"	--check I bit later I guess
+	local addressing_mode_str = (P == 0) and "["..Rn..", " or "["..Rn.."], "
+	--[[Addressing mode string has 2 forms based on P bit
+		P == 0 (Post indexing)
+			[<Rn>, #+/-<offset_12>](!)
+			[<Rn>, #+/-<Rm>](!)
+			[<Rn>, #+/-<Rm>, <shift> #<shift_imm>](!)
+		P == 1 (Pre indexing or offset addressing)
+			[<Rn>], #+/-<offset_12>
+			[<Rn>], #+/-<Rm>
+			[<Rn>], #+/-<Rm>, <shift> #<shift_imm>
+	Return string holds LDR|STR{<cond>}{B}{T}	<Rd>, ..addressing_mode_str
+	Shift_str holds #+/-<offset_12>, #+/-<Rm>, #+/-<Rm>, <shift> #<shift_imm>
+	addressing_mode_str holds [<Rn>..shift_str], [<Rn>]..shift_str
+	]]--
+	--[[
+	I  P  U  B  W  L are bits 
+	25 24 23 22 21 20 respectively
+	I (bit 25)
+		According to ARM Manual A5-19, 3 cases:
+		I == 0
+			Immediate offset
+		I == 1
+		Register offset with no shifts
+		Register offset with shifts
+	P (bit 24)
+		P == 0
+			Indicates the use of post-indexed addressing. The base register value is used for
+			the memory address, and the offset is then applied to the base register value and
+			written back to the base register.
+		P == 1
+			Indicates the use of offset addressing or pre-indexed addressing (the W bit
+			determines which). The memory address is generated by applying the offset to
+			the base register value.
+	U (bit 23)
+		U == 0
+			Offset is subtracted from base
+		U == 1
+			OFfset is added to base
+	B (bit 22)
+		B == 0
+			LDR/STR Word
+		B == 1
+			LDR/STR Byte
+	W (bit 21)
+		This thing has 2 meanings
+		Additionally, if W == 1, Rn == 15, result is UNPREDICTABLE
+		P == 0
+			W == 0
+				the instruction is LDR, LDRB, STR or STRB and a normal memory access is performed.
+			W == 1
+				the instruction is LDRBT, LDRT, STRBT or STRT and an unprivileged (User mode) memory access is performed.
+		P == 1
+			W == 0
+				base register is not updated. Treat as offset addressing
+			w == 1
+				address defined as base register + offset is written back to the base register. 
+				This is called pre-indexed addressing, and is literally the same as offset addressing but you write back
+	L (bit 20)
+		L == 0
+			Store byte or word
+		L == 1
+			Load byte or word
+	Plan:
+		1. Check L and B bit to find out which action to use: LDR/STR(B).
+		2. Check I bit to find out the offset
+		3. Check U bit to determine if +/- offset
+		4. Check P bit to determine if Post or Pre index
+	]]--
+	--Case 1:  Load and Store Word or Unsigned Byte - Immediate offset
+	--[<Rn>, #+/-<offset_12>]
+	local base = registers[Rn]
+	base = (Rn == 15) and base + 8 or base	--If P bit is 0, or P is 1 and W is 1, this is UNPREDICTABLE
+	local offset = 0
+	local value = registers[Rd]	--This seems to be it.
+	local action = utility.LDR	--default I guess?
+	--Determine which action to use: LDR/STR(B)
+	if L == 0 then
+		if B == 0 then
+			action = utility.STR
+			return_string = "STR"..cond_str
+		else
+			action = utility.STRB
+			return_string = "STR"..cond_str.."B"
+		end
+	else
+		if B == 0 then
+			action = utility.LDR
+			return_string = "LDR"..cond_str
+		else
+			action = utility.LDRB
+			return_string = "LDR"..cond_str.."B"
+		end
+	end
+	if P == 0 and W == 1 then return_string = return_string..cond.."T" end
+	return_string = return_string.."\t"..Rd..", "
+	--Determine how the offset is calculated
+	if I == 0 then	--Shift immediate
+	--ARM Manual A5-20 (W == 0), A5-24 (W == 1)
+		offset = Offset12
+		shift_str = "#"..shift_str..Offset12
+	else
+		local Rm = registers[bits_3_2_1_0]
+		if bits_11_4 == 0 then	--we use a different case instead of offset of shifted 0 since different text
+			--Register offset
+			offset = Rm
+			shift_str = shift_str..Rm
+		else
+			--ARM Manual A5-26
+			--Don't seem to change flags
+			--Scaled register offset
+			shift_str = shift_str..Rm..", "
+			local shift_imm = bit.rshift(Offset12, 7)	--bits 7 to 11
+			local shift_type = bit.band(bit.rshift(Offset12, 5), 3) --bits 5,6
+			if shift_type == 0 then
+			--LSL: 0 to 31, encoded directly in the shift_imm field.
+				offset = bit.lshift(Rm, shift_imm)
+				shift_str = shift_str.."LSL #"..shift_imm
+			elseif shift_type == 1 then
+			--LSR: 1 to 32. A shift amount of 32 is encoded as shift_imm == 0. Other shift
+			--amounts are encoded directly.
+				offset = shift_imm == 0 and 0 or bit.rshift(Rm, shift_imm)
+				shift_str = shift_str.."LSR #"..shift_imm
+			elseif shift_type == 2 then
+			--ASR: 1 to 32. A shift amount of 32 is encoded as shift_imm == 0. Other shift
+			--amounts are encoded directly.
+				if shift_imm == 0 then	--ASR #32 apparently
+					offset = bit.check(Rm, 31) and 0xFFFFFFFF or 0
+				else
+					offset = bit.arshift(Rm, shift_imm)
+				end
+				shift_str = shift_str.."ASR #"..shift_imm
+			else
+			--ROR: 1 to 31, encoded directly in the shift_imm field. (The shift_imm == 0
+			--encoding is used to specify the RRX option.)
+				if shift_imm == 0 then --RRX
+					--implement RRX
+					--shifter_operand = (C Flag Logical_Shift_Left 31) OR (Rm Logical_Shift_Right 1)
+					--shifter_carry_out = Rm[0]
+					--[[If I understand correctly:
+					1. Get bit 0 of Rm
+					2. Logical shift right of Rm by 1
+					3. Place 1) into bit 31 of result 2)
+					]]--
+					local temp = Rm % 2 --This is same as check first bit. Probably
+					offset = bit.rshift(Rm, 1)
+					offset = temp == 1 and bit.set(offset, 31) or offset
+					shift_str = shift_str.."RRX"
+				else
+					offset = bit.ror(Rm, shift_imm)
+					shift_str = shift_str.."ROR #"..shift_imm
+				end
+			end
+		end
+	end --End I bit check for offset
+	--Determine if +/- offset
+	offset = (U == 1) and offset or -1*offset
+	addressing_mode_str = addressing_mode_str..shift_str
+	if P == 0 then	--Post index
+		temp_array[Rd] = action(base, 0, value)	--Don't implement writeback until later
+		temp_array[Rd] = base+offset	--Seems to always write back; W bit just determines "T"
+	else	--Preindex/Offset addressing
+		temp_array[Rd] = action(base, offset, value)	--Don't implement writeback until later
+		addressing_mode_str = addressing_mode_str.."]"
+		if W == 0 then
+			temp_array[Rd] = base
+		else
+			temp_array[Rd] = base + offset
+			addressing_mode_str = addressing_mode_str.."!"
+		end
+	end
+	return_string = return_string..addressing_mode_str
+	return temp_array, return_string
 end
 
 function arm_format9()
@@ -485,10 +782,7 @@ end
 
 
 
-
-
-
-function asm_arm_module.do_thumb_instr(instruction, registers, definition)
+function asm_arm_module.do_instr(instruction, registers, definition)
 	local cond = bit.rshift(bit.band(0xF0000000, instruction), 28)				--binary 1111 0000 0000 0000 0000 0000 0000 0000‬
 	--We use this to check which format to use
 	local bits_27_26_25_24 = bit.rshift(bit.band(0xF000000, instruction), 24)	--binary 0000 1111 0000 0000 0000 0000 0000 0000‬
