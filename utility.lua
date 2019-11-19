@@ -353,7 +353,7 @@ function utility.ROR1(Rm, Offset, CPSR)
 		3. Place 1) into bit 31 of result 2)
 		]]--
 		local temp = Rm % 2 --This is same as check first bit. Probably
-		result = bit.lshift(Rm, 1)
+		result = bit.rshift(Rm, 1)
 		result = temp == 1 and bit.set(result, 31) or result
 	else
 		result = bit.ror(Rs, Offset)
@@ -574,6 +574,74 @@ function utility.NEG(Rs, CPSR)
 	return utility.SUB(0, Rs, CPSR)
 end
 
+--ARM Manual A5-17 (Addressing Mode 2)
+--ARM Manual A5-32 (Addressing Mode 3)
+--ARM Manual A4-43, A4-60 (LDRT)
+function utility.LDR(Base, Offset)
+--don't set flags
+	return utility.load_biz_addr(Base + Offset, 32)
+end
+
+--ARM Manual A4-46, A4-48 (LDRBT)
+function utility.LDRB(Base, Offset)
+--don't set flags
+	return utility.load_biz_addr(Base + Offset, 8)
+end
+
+--ARM Manual A4-54
+function utility.LDRH(Base, Offset)
+--Add Offset to base address in Base. Load bits 0-15 of Rd fOffsetm the resulting address, and set bits 16-31 of Rd to 0.
+	local result = utility.load_biz_addr(Base + Offset, 32)
+	result = bit.band(0xFFFF, result)	-- binary 1111 1111 1111 1111
+	for i = 16, 31 do
+		bit.clear(result,i)
+	end
+	return result
+end
+
+--ARM Manual A4-56
+function utility.LDRSB(Base, Offset)
+--Add Offset to base address in Base. Load bits 0-7 of Rd fOffsetm the resulting address, and set bits 8-31 of Rd to bit 7.
+	local result = utility.load_biz_addr(Base + Offset, 32)
+	local bit7 = bit.check(result,7) and 1 or 0
+	result = bit.band(0xFF, result)	-- binary 1111 1111
+	for i = 8, 31 do
+		bit.set(result,bit7)
+	end
+	return result
+end
+
+--ARM Manual A4-58
+function utility.LDRSH(Base, Offset)
+--Add Offset to base address in Base. Load bits 0-15 of Rd fOffsetm the resulting address, and set bits 16-31 of Rd to bit 15.
+	local result = utility.load_biz_addr(Base + Offset, 32)
+	local bit15 = bit.check(result,15) and 1 or 0
+	result = bit.band(0xFFFF, result)	-- binary 1111 1111 1111 1111
+	for i = 16, 31 do
+		bit.set(result,bit15)
+	end
+	return result
+end
+
+--ARM Manual A4-193, A4-206 (STRT)
+function utility.STR(Base, Offset, Value)
+	utility.write_biz_addr(Base + Offset, Value, 32)
+	return Base
+end
+
+--ARM Manual A4-195
+function utility.STRB(Base, Offset, Value)
+	utility.write_biz_addr(Base + Offset, Value, 8)
+	return Base
+end
+
+--ARM Manual A4-204
+function utility.STRH(Base, Offset, Value)
+	--Add Offset to base address in Base. Store bits 0-15 of Value at the resulting address
+	local bit_0_15 = bit.band(0xFFFF, Value)	-- binary 1111 1111 1111 1111
+	utility.write_biz_addr(Base + Offset, bit_0_15, 32)
+	return Base
+end
 
 --Arith without ADC use
 --ARM Manual A4-6 (ARM), A7-5, A7-6, A7-7, A7-8, A7-9, A7-10, A7-11, A7-12 (THUMB)
