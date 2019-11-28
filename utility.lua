@@ -592,22 +592,15 @@ end
 function utility.LDRH(Base, Offset)
 --Add Offset to base address in Base. Load bits 0-15 of Rd fOffsetm the resulting address, and set bits 16-31 of Rd to 0.
 	local result = utility.load_biz_addr(Base + Offset, 32)
-	result = bit.band(0xFFFF, result)	-- binary 1111 1111 1111 1111
-	for i = 16, 31 do
-		bit.clear(result,i)
-	end
-	return result
+	return bit.band(0xFFFF, result)	-- binary 1111 1111 1111 1111
 end
 
 --ARM Manual A4-56
 function utility.LDRSB(Base, Offset)
 --Add Offset to base address in Base. Load bits 0-7 of Rd fOffsetm the resulting address, and set bits 8-31 of Rd to bit 7.
 	local result = utility.load_biz_addr(Base + Offset, 32)
-	local bit7 = bit.check(result,7) and 1 or 0
 	result = bit.band(0xFF, result)	-- binary 1111 1111
-	for i = 8, 31 do
-		bit.set(result,bit7)
-	end
+	result = bit.check(result,7) and result + 0xFFFFFF00 or result	-- Make bits 8 to 31 to 1 by adding.
 	return result
 end
 
@@ -615,11 +608,8 @@ end
 function utility.LDRSH(Base, Offset)
 --Add Offset to base address in Base. Load bits 0-15 of Rd fOffsetm the resulting address, and set bits 16-31 of Rd to bit 15.
 	local result = utility.load_biz_addr(Base + Offset, 32)
-	local bit15 = bit.check(result,15) and 1 or 0
 	result = bit.band(0xFFFF, result)	-- binary 1111 1111 1111 1111
-	for i = 16, 31 do
-		bit.set(result,bit15)
-	end
+	result = bit.check(result,15) and result + 0xFFFF0000 or result	-- Make bits 16 to 31 to 1 by adding.
 	return result
 end
 
