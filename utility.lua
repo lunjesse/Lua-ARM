@@ -1,9 +1,8 @@
 local utility = {}
-
-function utility.set_flag(CPSR, N, Z, C, V, Q)
-	--CPSR is status register
-	--Usage: set_flag(r,1,1,1,1) example
-	--[[https://nintenfo.github.io/repository/webmirrors/techinfo.html
+--Constants for flags
+--CPSR is status register
+--Usage: set_flag(r,1,1,1,1) example
+--[[https://nintenfo.github.io/repository/webmirrors/techinfo.html
 	Bit   Expl.
   31    N - Sign Flag       (0=Not Signed, 1=Signed)               ;\
   30    Z - Zero Flag       (0=Not Zero, 1=Zero)                   ; Condition
@@ -15,17 +14,22 @@ function utility.set_flag(CPSR, N, Z, C, V, Q)
   6     F - FIQ disable     (0=Enable, 1=Disable)                     ; Control
   5     T - State Bit       (0=ARM, 1=THUMB) - Do not change manually!; Bits
   4-0   M4-M0 - Mode Bits   (See below)                               ;/
-	]]--
-	local temp = CPSR
-	-- console.log("Now: "..bizstring.binary(temp))
-	if N > 0 then temp = bit.set(temp,31) else temp = bit.clear(temp,31) end
-	if Z > 0 then temp = bit.set(temp,30) else temp = bit.clear(temp,30) end
-	if C > 0 then temp = bit.set(temp,29) else temp = bit.clear(temp,29) end
-	if V > 0 then temp = bit.set(temp,28) else temp = bit.clear(temp,28) end
-	if Q > 0 then temp = bit.set(temp,27) else temp = bit.clear(temp,27) end
-	-- console.log("N: "..N.." Z: "..Z.." C: "..C.." V: "..V.." Q: "..Q)
-	-- console.log("After: "..bizstring.binary(temp))
-	return temp
+]]--
+local flags = {}
+flags.N = 31
+flags.Z = 30
+flags.C = 29
+flags.V = 28
+flags.Q = 27
+flags.I = 7
+flags.F = 6
+flags.T = 5
+function utility.set_flag(CPSR, flags)
+	for k, v in pairs(flag) do
+	--k should be the index of a sparse table, and v should be true/false
+		CPSR = v == true and bit.set(CPSR,k) or bit.clear(CPSR, k)
+	end
+	return CPSR;
 end
 
 --since bizhawk hates the 0x8/0x3/0x4 part, remove it
@@ -94,7 +98,7 @@ Returns 1 if the addition specified as its parameter caused a carry (true result
 where the operands are treated as unsigned integers), and returns 0 in all other cases. This delivers further
 information about an addition which occurred earlier in the pseudo-code. The addition is not repeated.
 ]]--
-	return A+B > 4294967295 and 1 or 0
+	return A+B > 4294967295
 end
 
 function overflow_from_add(A, B)
@@ -118,10 +122,10 @@ The addition or subtraction is not repeated.
 	1	1	1	0
 	Literally 2 cases possible for overflow
 ]]--
-	local A31 = bit.check(A, 31) and 1 or 0
-	local B31 = bit.check(B, 31) and 1 or 0
-	local AB31 = bit.check(A+B, 31) and 1 or 0
-	return (A31 == B31 and A31 ~= AB31) and 1 or 0
+	local A31 = bit.check(A, 31)
+	local B31 = bit.check(B, 31)
+	local AB31 = bit.check(A+B, 31)
+	return (A31 == B31 and A31 ~= AB31)
 end	
 	
 function overflow_from_sub(A, B)
@@ -137,10 +141,10 @@ function overflow_from_sub(A, B)
 	1	1	1	0
 	Literally 2 cases possible for overflow
 ]]--
-	local A31 = bit.check(A, 31) and 1 or 0
-	local B31 = bit.check(B, 31) and 1 or 0
-	local AB31 = bit.check(A-B, 31) and 1 or 0
-	return (A31 ~= B31 and A31 ~= AB31) and 1 or 0
+	local A31 = bit.check(A, 31)
+	local B31 = bit.check(B, 31)
+	local AB31 = bit.check(A-B, 31)
+	return (A31 ~= B31 and A31 ~= AB31)
 end
 
 function ADC(Rs, Rn, Carry, CPSR, Sub)
@@ -148,19 +152,17 @@ function ADC(Rs, Rn, Carry, CPSR, Sub)
 	--we need carry as well, since some instructions ignore carry flag
 	local result = (Rs + Rn + Carry)
 	local sum32 = result % 4294967296
-	local N = bit.check(sum32,31) and 1 or 0
-	local Z = (sum32 == 0) and 1 or 0
-	local C = carry_from(Rs, Rn + Carry)
-	local V = 0
+	local flag = {}
+	flag[flags.N] = bit.check(sum32, flags.N)
+	flag[flags.Z] = (sum32 == 0)
+	flag[flags.C] = carry_from(Rs, Rn + Carry)
 	--Can't seem to figure out how to implement SUB as ADD using ADC, so just using a bool to check which version of overflow to use
 	if Sub == true then
-		V = overflow_from_sub(Rs, bit.bnot(Rn))
+		flag[flags.V] = overflow_from_sub(Rs, bit.bnot(Rn))
 	else
-		V = overflow_from_add(Rs, Rn + Carry)
+		flag[flags.V] = overflow_from_add(Rs, Rn + Carry)
 	end
-	local Q = bit.check(CPSR, 27) and 1 or 0	--unchanged
-	-- console.log("After: N: "..N.." Z: "..Z.." C: "..C.." V: "..V.." Q: "..Q)
-	return sum32, utility.set_flag(CPSR, N, Z, C, V, Q)
+	return sum32, utility.set_flag(CPSR, flag)
 end
 
 --DATA PROCESSING OPERANDS
@@ -173,28 +175,25 @@ function utility.LSL(Rs, Offset, CPSR)
 	--We first mask the Offset into an 8 bit number; this won't change anything if it was the 5 bit offset
 	Offset = bit.band(0xFF, Offset)
 	local result = nil
-	local C = nil
+	local flag = {}	--For CPSR update
 	--LSL immediate
 	if Offset == 0 then
-		C = bit.check(CPSR, 29) and 1 or 0	--C flag unaffected if 0 shift
+		flag[flags.C] = bit.check(CPSR, flags.C)	--C flag unaffected if 0 shift
 		result = Rs
 	elseif Offset < 32 then 
-		C = bit.check(Rs, 32-Offset) and 1 or 0
+		flag[flags.C] = bit.check(Rs, 32-Offset)
 		result = bit.lshift(Rs, Offset)
 	--LSL register
 	elseif Offset == 32 then
-		C = bit.check(Rs, 0) and 1 or 0
+		flag[flags.C] = bit.check(Rs, 0)
 		result = 0
 	else	--Greater than 32
 		C = 0
 		result = 0
 	end
-	local N = bit.check(result, 31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
+	flag[flags.N] = bit.check(result, flags.N)
+	flag[flags.Z] = (result == 0)
+	return result, utility.set_flag(CPSR, flag)
 end
 
 --ARM Manual A5-11, A7-68 (THUMB)
@@ -203,20 +202,17 @@ function utility.LSR1(Rs, Offset, CPSR)
 	--In this case, it's immediate offset. An offset of 0 indicates logical right shift of 32 rather than 0; 
 	--instead, LSR #0 is converted to LSL #0. This applies to ASR and ROR as well
 	local result = nil
-	local C = nil
+	local flag = {}	--For CPSR update
 	if Offset == 0 then
-		C = bit.check(Rs, 31) and 1 or 0
+		flag[flags.C] = bit.check(Rs, flags.N)
 		result = 0
 	else
-		C = bit.check(Rs, Offset-1) and 1 or 0
+		flag[flags.C] = bit.check(Rs, Offset-1)
 		result = bit.rshift(Rs, Offset)
 	end
-	local N = bit.check(result,31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
+	flag[flags.N] = bit.check(result, flags.N)
+	flag[flags.Z] = (result == 0)
+	return result, utility.set_flag(CPSR, flag)
 end
 
 --ARM Manual A5-12, A7-70 (THUMB)
@@ -226,26 +222,23 @@ function utility.LSR2(Rd, Rs, CPSR)
 	--We first mask the Offset (Rs, in this case) into an 8 bit number
 	Rs = bit.band(0xFF, Rs)
 	local result = nil
-	local C = nil
+	local flag = {}	--For CPSR update
 	if Rs == 0 then
-		C = bit.check(CPSR, 29) and 1 or 0	--C flag unaffected if 0 shift
+		flag[flags.C] = bit.check(CPSR, flags.C)	--C flag unaffected if 0 shift
 		result = Rd
 	elseif Rs < 32 then
-		C = bit.check(Rd, Rs-1) and 1 or 0
+		flag[flags.C] = bit.check(Rd, Rs-1)
 		result = bit.rshift(Rd, Rs)
 	elseif Rs == 32 then
-		C = bit.check(Rd, 31) and 1 or 0
+		flag[flags.C] = bit.check(Rd, flags.N)
 		result = 0
 	else	--Greater than 32
-		C = 0
+		flag[flags.C] = false
 		result = 0
 	end
-	local N = bit.check(result,31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
+	flag[flags.N] = bit.check(result, flags.N)
+	flag[flags.Z] = (result == 0)
+	return result, utility.set_flag(CPSR, flag)
 end
 
 --ARM Manual A5-13, A7-15 (THUMB)
@@ -254,24 +247,21 @@ function utility.ASR1(Rm, Offset, CPSR)
 	--In this case, it's immediate offset. An offset of 0 indicates arithmetic right shift of 32 rather than 0; 
 	--instead, ASR #0 is converted to LSL #0. This applies to LSR and ROR as well
 	local result = nil
-	local C = nil
+	local flag = {}	--For CPSR update
 	if Offset == 0 then
-		C = bit.check(Rm, 31) and 1 or 0
-		if C == 0 then
+		flag[flags.C] = bit.check(Rm, flags.N)
+		if flag[flags.C] == false then
 			result = 0
 		else	--bit 31 of Rm is 1
 			result = 0xFFFFFFFF
 		end
 	else
-		C = bit.check(Rm, Offset-1) and 1 or 0
-		result = bit.arshift(Rs, Offset)
+		flag[flags.C] = bit.check(Rm, Offset-1)
+		result = bit.arshift(Rm, Offset)
 	end
-	local N = bit.check(result,31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
+	flag[flags.N] = bit.check(result, flags.N)
+	flag[flags.Z] = (result == 0)
+	return result, utility.set_flag(CPSR, flag)
 end
 
 --ARM Manual A5-14, A7-17 (THUMB)
@@ -281,27 +271,24 @@ function utility.ASR2(Rd, Rs, CPSR)
 	--We first mask the Offset (Rs, in this case) into an 8 bit number
 	Rs = bit.band(0xFF, Rs)
 	local result = nil
-	local C = nil
+	local flag = {}	--For CPSR update
 	if Rs == 0 then
-		C = bit.check(CPSR, 29) and 1 or 0	--C flag unaffected if 0 shift
+		flag[flags.C] = bit.check(CPSR, flags.C)	--C flag unaffected if 0 shift
 		result = Rd
 	elseif Rs < 32 then
-		C = bit.check(Rd, Rs-1) and 1 or 0
+		flag[flags.C] = bit.check(Rd, Rs-1)
 		result = bit.arshift(Rs, Rs)
 	else --Greater than 32
-		C = bit.check(Rd, 31) and 1 or 0
-		if C == 0 then
+		flag[flags.C] = bit.check(Rd, flags.N)
+		if flag[flags.C] == false then
 			result = 0
 		else	--bit 31 of Rd is 1
 			result = 0xFFFFFFFF
 		end
 	end
-	local N = bit.check(result,31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
+	flag[flags.N] = bit.check(result, flags.N)
+	flag[flags.Z] = (result == 0)
+	return result, utility.set_flag(CPSR, flag)
 end
 
 --ARM Manual pA7-92
@@ -311,27 +298,24 @@ function utility.ROR(Rd, Rs, CPSR)
 	--We first mask the Offset (Rs, in this case) into an 8 bit number
 	Rs = bit.band(0xFF, Rs)
 	local result = nil
-	local C = nil
+	local flag = {}	--For CPSR update
 	if Rs == 0 then
-		C = bit.check(CPSR, 29) and 1 or 0	--C flag unaffected if 0 rotate
+		--C flag unaffected if 0 rotate
 		result = Rd
 	else
 		--Apparently we now only care about bits 4 to 0 for the else
 		Rs = bit.band(0xF, Rs)
 		if Rs == 0 then 
-			C = bit.check(Rd, 31) and 1 or 0
+			flag[flags.C] = bit.check(Rd, flags.N)
 			result = Rd
 		else	--Rs[4:0] > 0
-			C = bit.check(Rd, Rs-1) and 1 or 0
+			flag[flags.C] = bit.check(Rd, Rs-1)
 			result = bit.ror(Rd, Rs)
 		end
 	end
-	local N = bit.check(result,31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
+	flag[flags.N] = bit.check(result, flags.N)
+	flag[flags.Z] = (result == 0)
+	return result, utility.set_flag(CPSR, flag)
 end
 
 --ARM Manual A5-15, A5-17 (RRX)
@@ -342,7 +326,7 @@ function utility.ROR1(Rm, Offset, CPSR)
 	--Bit 4 is 0, so it's immediate offset of 5 bits
 	--"If R15 is specified as register Rm or Rn, the value used is the address of the current instruction plus 8"
 	local result = nil
-	local C = nil
+	local flag = {}	--For CPSR update
 	if Offset == 0 then
 		--implement RRX
 		--shifter_operand = (C Flag Logical_Shift_Left 31) OR (Rm Logical_Shift_Right 1)
@@ -354,17 +338,14 @@ function utility.ROR1(Rm, Offset, CPSR)
 		]]--
 		local temp = Rm % 2 --This is same as check first bit. Probably
 		result = bit.rshift(Rm, 1)
-		result = temp == 1 and bit.set(result, 31) or result
+		result = temp == 1 and bit.set(result, flags.N) or result
 	else
 		result = bit.ror(Rs, Offset)
-		C = bit.check(Rm, Offset-1) and 1 or 0
+		flag[flags.C] = bit.check(Rm, Offset-1)
 	end
-	local N = bit.check(result,31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
+	flag[flags.N] = bit.check(result, flags.N)
+	flag[flags.Z] = (result == 0)
+	return result, utility.set_flag(CPSR, flag)
 end
 
 --ARM Manual A5-16
@@ -377,26 +358,23 @@ function utility.ROR2(Rm, Rs, CPSR)
 	--"Specifying R15 as register Rd, register Rm, register Rn, or register Rs has UNPREDICTABLE results."
 	Rs = bit.band(0xFF, Rs)
 	local result = nil
-	local C = nil
+	local flag = {}	--For CPSR update
 	if Rs == 0 then
 		result = Rm
-		C = bit.check(CPSR, 29) and 1 or 0	--C flag unaffected if 0 rotate
+		flag[flags.C] = bit.check(CPSR, flags.C)	--C flag unaffected if 0 rotate
 	else
 		Rs = bit.band(0x1F, Rs) --Only care about first 5 bits
 		if Rs == 0 then
 			result = Rm
-			C = bit.check(Rm, 31) and 1 or 0	--Differnt than above
+			flag[flags.C] = bit.check(Rm, flags.N)	--Differnt than above
 		else	--Bits 0-4 are not 0
 			result = bit.ror(Rm, Rs)
-			C = bit.check(Rm, Rs-1) and 1 or 0
+			flag[flags.C] = bit.check(Rm, Rs-1)
 		end
 	end
-	local N = bit.check(result,31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
+	flag[flags.N] = bit.check(result, flags.N)
+	flag[flags.Z] = (result == 0)
+	return result, utility.set_flag(CPSR, flag)
 end
 
 --ARM Manual A5-6
@@ -408,43 +386,35 @@ function utility.ROR3(immed_8, rotate_imm, CPSR)
 	--"If R15 is specified as register Rn, the value used is the address of the current instruction plus eight"
 	--The above line should be done BEFORE you give ROR3 the numbers in a different function
 	local result = nil
-	local C = nil
+	local flag = {}	--For CPSR update
 	if rotate_imm == 0 then
-		C = bit.check(CPSR, 29) and 1 or 0	--C flag unaffected if 0 rotate
+		flag[flags.C] = bit.check(CPSR, flags.C)	--C flag unaffected if 0 rotate
 	else
 		result = bit.ror(immed_8, rotate_imm*2)
-		C = bit.check(result, 31) and 1 or 0	--Set this to bit 31 of the shifted number instead of the original
+		flag[flags.C] = bit.check(result, flags.N)	--Set this to bit 31 of the shifted number instead of the original
 	end
-	local N = bit.check(result,31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
+	flag[flags.N] = bit.check(result, flags.N)
+	flag[flags.Z] = (result == 0)
+	return result, utility.set_flag(CPSR, flag)
 end
 
 --ARM Manual A7-14
 function utility.AND(Rd, Rs, CPSR)
 	local result = bit.band(Rd,Rs)
-	local N = bit.check(result,31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	local C = bit.check(Rs, 32) and 1 or 0
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
+	local flag = {}	--For CPSR update
+	flag[flags.N] = bit.check(result, flags.N)
+	flag[flags.Z] = (result == 0)
+	return result, utility.set_flag(CPSR, flag)
 end
 
---ARM Manual A7-43
+--ARM Manual A4-32, A7-43
 function utility.EOR(Rd, Rs, CPSR)
+	--C flag generated by the shifter
 	local result = bit.bxor(Rd, Rs)
-	local N = bit.check(result,31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	--C, V, Q flag unchanged
-	local C = bit.check(CPSR, 29) and 1 or 0
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
+	local flag = {}	--For CPSR update
+	flag[flags.N] = bit.check(result, flags.N)
+	flag[flags.Z] = (result == 0)
+	return result, utility.set_flag(CPSR, flag)
 end
 
 --ARM Manual A4-209
@@ -467,20 +437,20 @@ end
 --This version is what thumb/arm module use. maybe
 --ARM Manual A4-4 (ARM),  A7-4
 function utility.ADC(Rs, Rn, CPSR)
-	local C = bit.check(CPSR,29) and 1 or 0
+	local C = bit.check(CPSR, flags.C) and 1 or 0
 	return ADC(Rs, Rn, C, CPSR, false)
 end
 
 --ARM Manual A4-125 (ARM), A7-94
 function utility.SBC(Rs, Rn, CPSR)
-	local C = bit.check(CPSR, 29) and 0 or -1
+	local C = bit.check(CPSR, flags.C) and 0 or -1
 	return ADC(Rs, bit.bnot(Rn), C, CPSR, true)
 end
 
 --ARM Manual A4-117
 function utility.RSC(Rs, Rn, CPSR)
 --Subtract contents of Rs from contents of Rn, with NOT carry. Ie. Rn - Rs
-	local C = bit.check(CPSR,29) and 0 or -1	--NOT C flag; Also needs to be - C, which you can do by making C negative
+	local C = bit.check(CPSR, flags.C) and 0 or -1	--NOT C flag; Also needs to be - C, which you can do by making C negative
 	return ADC(Rn, bit.bnot(Rs), C, CPSR, true)
 end
 
@@ -488,6 +458,7 @@ end
 function utility.TST(Rd, Rs, CPSR)
 --From  ARM manual: Test (register) performs a logical AND operation on a register value and an optionally-shifted register value.
 --It updates the condition flags based on the result, and discards the result.
+	--C flag generated by the shifter
 	local _, CPSR2 = utility.AND(Rd, Rs, CPSR)
 	return Rd, CPSR2	--Need to return Rd to make it same as other functions for lookup table
 end
@@ -497,6 +468,7 @@ function utility.TEQ(Rd, Rs, CPSR)
 --From ARM manual: TEQ (Test Equivalence) compares a register value with another arithmetic value. The condition flags are
 -- updated, based on the result of logically exclusive-ORing the two values, so that subsequent instructions can
 --be conditionally executed.
+	--C flag generated by the shifter
 	local _, CPSR2 = utility.EOR(Rd, Rs, CPSR)
 	return Rd, CPSR2	--Need to return Rd to make it same as other functions for lookup table
 end
@@ -520,52 +492,44 @@ end
 
 --ARM Manual A4-84 (ARM), A7-81
 function utility.ORR(Rd, Rs, CPSR)
+	--C flag generated by the shifter
 	local result = bit.bor(Rd, Rs)
-	local N = bit.check(result,31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
+	local flag = {}	--For CPSR update
+	flag[flags.N] = bit.check(result, flags.N)
+	flag[flags.Z] = (result == 0)
 	--Manual sets carry by LSL shift 0 with Rs (Rm in ARM manual); this means 32 - 0 = 32th bit
-	local C = bit.check(Rs, 32) and 1 or 0
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
+	--Seems to be from the ARM version where RS gets shifted`
+	--local C = bit.check(Rs, 32) and 1 or 0
+	return result, utility.set_flag(CPSR, flag)
 end
 
 --ARM Manual A4-68 (ARM), A7-72, A7-73, A7-75
 function utility.MOV(dummy, Offset8, CPSR)
---Need dummy to make it same argument placement as other functions for lookup table
-	local N = bit.check(Offset8,31) and 1 or 0
-	local Z = (Offset8 == 0) and 1 or 0
-	local C = bit.check(CPSR, 29) and 1 or 0	--not sure if changed
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return Offset8, utility.set_flag(CPSR, N, Z, C, V, Q)
+	--Need dummy to make it same argument placement as other functions for lookup table
+	--C flag generated by the shifter
+	local flag = {}	--For CPSR update
+	flag[flags.N] = bit.check(Offset8, flags.N)
+	flag[flags.Z] = (Offset8 == 0)
+	return Offset8, utility.set_flag(CPSR, flag)
 end
 
 --ARM Manual A4-12 (ARM), A7-23
 function utility.BIC(Rd, Rs, CPSR)
+	--C flag generated by the shifter
 	local result = bit.band(Rd, bit.bnot(Rs))
-	local N = bit.check(result,31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	--Manual sets carry by LSL shift 0 with Rs (Rm in ARM manual); this means 32 - 0 = 32th bit
-	local C = bit.check(Rs, 32) and 1 or 0
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
+	local flag = {}	--For CPSR update
+	flag[flags.N] = bit.check(result, flags.N)
+	flag[flags.Z] = (result == 0)
+	return result, utility.set_flag(CPSR, flag)
 end
 
 --ARM Manual A4-82 (ARM), A7-79
 function utility.MVN(dummy, Rs, CPSR)
-	local N = bit.check(Rs,31) and 1 or 0
-	local Z = (Rs == 0) and 1 or 0
-	--Manual sets carry by LSL shift 0; this means 32 - 0 = 32th bit
-	local C = bit.check(Rs, 32) and 1 or 0	
-	--V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return bit.bnot(Rs)
+	--C flag generated by the shifter
+	local flag = {}	--For CPSR update
+	flag[flags.N] = bit.check(Rs,31)
+	flag[flags.Z] = (Rs == 0)
+	return bit.bnot(Rs), utility.set_flag(CPSR, flag)
 end
 
 --ARM Manual A7-80 (THUMB only)
@@ -592,7 +556,8 @@ end
 function utility.LDRH(Base, Offset)
 --Add Offset to base address in Base. Load bits 0-15 of Rd fOffsetm the resulting address, and set bits 16-31 of Rd to 0.
 	local result = utility.load_biz_addr(Base + Offset, 32)
-	return bit.band(0xFFFF, result)	-- binary 1111 1111 1111 1111
+	result = bit.band(0xFFFF, result)	-- binary 1111 1111 1111 1111
+	return result
 end
 
 --ARM Manual A4-56
@@ -633,6 +598,212 @@ function utility.STRH(Base, Offset, Value)
 	return Base
 end
 
+--ARM Manual A4-80, A7-77 (THUMB)
+function utility.MUL(Rd, Rs, CPSR)
+--For the ARM version, pretend Rd is Rm instead. ie. Rm * Rs
+	return utility.MLA(Rd, Rs, 0, CPSR)
+end
+
+--ARM Manual A4-251
+function utility.UMULL(RdLo, RdHi, Rm, Rs, CPSR)
+	return utility.UMLAL(0, 0, Rm, Rs, CPSR)
+end
+
+function utility.SMULL(RdLo, RdHi, Rm, Rs, CPSR)
+	local low32, high32, temp_CPSR = utility.UMLAL(RdLo, RdHi, Rm, Rs, CPSR)
+	high32 = (bit.check(Rm,31) ~= bit.check(Rs,31)) and bit.set(high32,31) or bit.clear(high32,31)
+	return low32, high32, temp_CPSR
+end
+
+--ARM Manual A4-249
+function utility.UMLAL(RdLo, RdHi, Rm, Rs, CPSR)
+--http://tasvideos.org/forum/viewtopic.php?p=489523#489523
+	local reslow = Rm * (Rs%0x10000)                   -- 0x0000LLLLLLLLLLLL
+	local reshigh = Rm * math.floor(Rs/0x10000)        -- 0xHHHHHHHHHHHH0000
+	
+	local reslow_lo = reslow%0x100000000             -- 0x00000000LLLLLLLL
+	local reslow_hi = math.floor(reslow/0x100000000) -- 0x0000LLLL00000000
+	
+	local reshigh_lo = reshigh%0x10000               -- 0x00000000HHHH0000
+	local reshigh_hi = math.floor(reshigh/0x10000)   -- 0xHHHHHHHH00000000
+	
+	local low32 = reshigh_lo*0x10000 + reslow_lo
+	local high32 = reshigh_hi + reslow_hi
+	high32 = high32 + math.floor(low32/0x100000000) -- add what carries over
+	low32 = (low32 + RdLo)%0x100000000 -- 32 bit
+	high32 = (high32 + RdHi + carry_from(low32, RdLo))%0x100000000 -- 32 bit
+	local flag = {}	--For CPSR update
+	flag[flags.N] = bit.check(high32, flags.N)
+	flag[flags.Z] = (high32 == 0 and low32 == 0)
+	return low32, high32, utility.set_flag(CPSR, flag)
+end
+
+--ARM Manual A4-146
+function utility.SMLAL(RdLo, RdHi, Rm, Rs, CPSR)
+--[[Signed bit
+	Rm	Rs	Rm x Rs
+	0	0	0
+	0	1	1
+	1	0	1
+	1	1	0
+]]--
+	local low32, high32, temp_CPSR = utility.UMLAL(RdLo, RdHi, Rm, Rs, CPSR)
+	high32 = (bit.check(Rm,31) ~= bit.check(Rs,31)) and bit.set(high32,31) or bit.clear(high32,31)
+	return low32, high32, temp_CPSR
+end
+
+--ARM Manual A4-66
+function utility.MLA(Rm, Rs, Rn, CPSR)
+--http://tasvideos.org/forum/viewtopic.php?p=489512#489512
+--Rd = (Rm * Rs + Rn)[31:0]
+	local reslow = Rm * (Rs%0x10000) -- Rm multiplied with lower 16 bits of Rs
+	local reshigh = Rm * (math.floor(Rs/0x10000)%0x10000) -- Rm multiplied with higher 16 bits of Rs (shifted down)
+	reshigh = reshigh%0x10000 -- only 16 bits can matter here if result is 32 bits
+	
+	local result = (reshigh*0x10000 + reslow + Rn)%0x100000000 -- recombine and cut off to 32 bits
+	local flag = {}	--For CPSR update
+	flag[flags.N] = bit.check(result, flags.N)
+	flag[flags.Z] = (result == 0)
+	return result, utility.set_flag(CPSR, flag)
+end
+
+--[[
+ARM Manual A4-36
+LDM(1)
+MemoryAccess(B-bit, E-bit)
+if ConditionPassed(cond) then
+	address = start_address
+	for i = 0 to 14
+		if register_list[i] == 1 then
+			Ri = Memory[address,4]
+			address = address + 4
+	if register_list[15] == 1 then
+		value = Memory[address,4]
+		if (architecture version 5 or above) then
+			pc = value AND 0xFFFFFFFE
+			T Bit = value[0]
+		else
+			pc = value AND 0xFFFFFFFC
+		address = address + 4
+	assert end_address == address - 4 
+
+ARM Manual A4-38	
+LDM(2)
+MemoryAccess(B-bit, E-bit)
+if ConditionPassed(cond) then
+	address = start_address
+	for i = 0 to 14
+		if register_list[i] == 1
+			Ri_usr = Memory[address,4]
+			address = address + 4
+	assert end_address == address - 4
+
+ARM Manual A4-40
+LDM(3)
+MemoryAccess(B-bit, E-bit)
+if ConditionPassed(cond) then
+	address = start_address
+	for i = 0 to 14
+		if register_list[i] == 1 then
+			Ri = Memory[address,4]
+			address = address + 4
+	if CurrentModeHasSPSR() then
+		CPSR = SPSR
+	else
+		UNPREDICTABLE
+	value = Memory[address,4]
+	PC = value
+	address = address + 4
+	assert end_address == address - 4
+	
+--ARM Manual A5-43
+LDM/STM IA (Increment After)
+start_address = Rn
+end_address = Rn + (Number_Of_Set_Bits_In(register_list) * 4) - 4
+if ConditionPassed(cond) and W == 1 then
+	Rn = Rn + (Number_Of_Set_Bits_In(register_list) * 4)
+
+--ARM Manual A5-44
+LDM/STM IB (Increment Before)
+start_address = Rn + 4
+end_address = Rn + (Number_Of_Set_Bits_In(register_list) * 4)
+if ConditionPassed(cond) and W == 1 then
+	Rn = Rn + (Number_Of_Set_Bits_In(register_list) * 4)
+
+--ARM Manual A5-45
+LDM/STM DA (Decrement After)
+start_address = Rn - (Number_Of_Set_Bits_In(register_list) * 4) + 4
+end_address = Rn
+if ConditionPassed(cond) and W == 1 then
+	Rn = Rn - (Number_Of_Set_Bits_In(register_list) * 4)
+
+--ARM Manual A5-46
+LDM/STM DB (Decrement Before)
+start_address = Rn - (Number_Of_Set_Bits_In(register_list) * 4)
+end_address = Rn - 4
+if ConditionPassed(cond) and W == 1 then
+	Rn = Rn - (Number_Of_Set_Bits_In(register_list) * 4)
+
+--ARM Manual A5-48 for name if Rn is stack
+Plan:
+There are 5 bits
+	P  U  S  W  L are bits 
+	24 23 22 21 20 respectively
+
+	P (bit 24)
+		P == 0
+			indicates that the word addressed by Rn is included in the range of memory
+			locations accessed, lying at the top (U==0) or bottom (U==1) of that range.
+			
+			arm-instructionset.pdf claims it means post; add offset after transfer
+		P == 1
+			indicates that the word addressed by Rn is excluded from the range of memory
+			locations accessed, and lies one word beyond the top of the range (U==0) or one
+			word below the bottom of the range (U==1).
+			
+			arm-instructionset.pdf claims it means pre; add offset before transfer
+			
+	U (bit 23)
+		U == 0
+			indicates transfer is made upwards from the base address
+		U == 1
+			indicates transfer is made downwards from the base address
+	
+	S (bit 22)
+		S == 0
+			For LDMs that load the PC, the S bit indicates that the CPSR is loaded from the SPSR.
+			For LDMs that do not load the PC and all STMs, the S bit indicates that when the processor is in a
+			privileged mode, the User mode banked registers are transferred instead of the registers of
+			the current mode.
+		S == 1
+			LDM with the S bit set is UNPREDICTABLE in User or System mode. 
+]]--
+--Make a table of each integer with number of bits set
+local num_to_bits = {[0] = 0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4};
+--ARM Manual A4-36, A4-38, A4-40
+-- function utility.LDM1(Base, RList, registers)
+	-- --[[3 versions:
+	-- 1. Load Multiple
+	-- 2. User Registers Load Multiple
+	-- 3. Load Multiple with Restore CPSR
+	-- ]]--
+	-- local address = Base
+	-- --it's 16 bits, so split the number into 4
+	-- local num = 
+	-- for i = 0,14 do
+		-- if bit.check(RList,i) then
+			-- registers[i] = utility.load_biz_addr(address, 32)
+			-- address = address + 4
+		-- end
+	-- end
+	-- if bit.check(RList,15) then
+		-- local value = utility.load_biz_addr(address, 32)
+		-- registers[15] = bit.band(value,0xFFFFFFFC)	--GBA is ARMv4, so no need to check if ARMv5+
+		-- address = address + 4
+	-- end
+	-- local end_cond = ()
+-- end
+
 --Arith without ADC use
 --ARM Manual A4-6 (ARM), A7-5, A7-6, A7-7, A7-8, A7-9, A7-10, A7-11, A7-12 (THUMB)
 function ADD(Rd, Rn, CPSR)
@@ -640,24 +811,22 @@ function ADD(Rd, Rn, CPSR)
 --CPSR isn't updated for certain situations; take this into account on the format functions
 --This is without using ADC
 	local result = (Rd + Rn) % 4294967296
-	local N = bit.check(result,31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	local C = carry_from(Rd, Rn)
-	local V = overflow_from_add(Rd, Rn)
-	--Q flag unchanged
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
+	local flag = {}	--For CPSR update
+	flag[flags.N] = bit.check(result, flags.N)
+	flag[flags.Z] = (result == 0)
+	flag[flags.C] = carry_from(Rd, Rn)
+	flag[flags.V] = overflow_from_add(Rd, Rn)
+	return result, utility.set_flag(CPSR, flag)
 end
 
 function SUB(Rd, Rn, CPSR)
 	local result = Rd - Rn
-	local N = bit.check(result,31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	local C = (borrow_from(Rd, Rn) == 1) and 0 or 1	--NOT borrow_from
-	local V = overflow_from_sub(Rd, Rn)
-	--Q flag unchanged
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
+	local flag = {}	--For CPSR update
+	flag[flags.N] = bit.check(result, flags.N)
+	flag[flags.Z] = (result == 0)
+	flag[flags.C] = (borrow_from(Rd, Rn) == 1)	--NOT borrow_from
+	flag[flags.V] = overflow_from_sub(Rd, Rn)
+	return result, utility.set_flag(CPSR, flag)
 end
 
 return utility
