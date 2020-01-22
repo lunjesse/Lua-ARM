@@ -24,7 +24,7 @@ flags.Q = 27
 flags.I = 7
 flags.F = 6
 flags.T = 5
-function utility.set_flag(CPSR, flags)
+function utility.set_flag(CPSR, flag)
 	for k, v in pairs(flag) do
 	--k should be the index of a sparse table, and v should be true/false
 		CPSR = v == true and bit.set(CPSR,k) or bit.clear(CPSR, k)
@@ -145,6 +145,48 @@ function overflow_from_sub(A, B)
 	local B31 = bit.check(B, 31)
 	local AB31 = bit.check(A-B, 31)
 	return (A31 ~= B31 and A31 ~= AB31)
+end
+
+function utility.consec_number(number_table)
+--Given a sorted array, return a string that displays consecutive numbers
+	local start = nil
+	local last = nil
+	local ranges = {}
+	local sub_array = {}
+	--Go through the list of registers found, and check for consecutive numbers
+	for i = 1, #number_table do
+		if i == 1 then
+			start = number_table[i]
+			last = start
+			sub_array[#sub_array+1] = start
+		else
+			--Next number is consecutive
+			if number_table[i] == last + 1 then
+				last = number_table[i]
+				sub_array[#sub_array+1] = last
+			--Next number is not consecutive
+			else
+				start = number_table[i]
+				last = start
+				ranges[#ranges+1] = sub_array
+				sub_array = {}
+				sub_array[#sub_array+1] = start
+			end
+		end
+		if i == #number_table then
+			ranges[#ranges+1] = sub_array
+		end
+	end
+	local reg_list = ""
+	for i = 1, #ranges do
+		if #ranges[i] == 1 then	--singleton range
+			reg_list = reg_list.."r"..ranges[i][1]
+		else	
+			reg_list = reg_list.."r"..ranges[i][1].."-r"..ranges[i][#ranges[i]]
+		end
+		reg_list = (i == #ranges) and reg_list or reg_list..","
+	end
+	return reg_list
 end
 
 function ADC(Rs, Rn, Carry, CPSR, Sub)
@@ -777,32 +819,238 @@ There are 5 bits
 			the current mode.
 		S == 1
 			LDM with the S bit set is UNPREDICTABLE in User or System mode. 
+	
+	W (bit 21)
+		W == 0
+			no write-back
+		W == 1
+			write address into base
+		
+	L (bit 20)
+		L == 0
+			Store to memory
+		L == 1
+			Load to memory
+			
+	Bit 15
+		bit15 == 0
+			Don't touch PC
+		bit15 == 1
+			PC = value AND 0xFFFFFFFE
+			T Bit = value[0]
 ]]--
+
 --Make a table of each integer with number of bits set
 local num_to_bits = {[0] = 0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4};
 --ARM Manual A4-36, A4-38, A4-40
--- function utility.LDM1(Base, RList, registers)
-	-- --[[3 versions:
-	-- 1. Load Multiple
-	-- 2. User Registers Load Multiple
-	-- 3. Load Multiple with Restore CPSR
-	-- ]]--
-	-- local address = Base
-	-- --it's 16 bits, so split the number into 4
-	-- local num = 
-	-- for i = 0,14 do
-		-- if bit.check(RList,i) then
-			-- registers[i] = utility.load_biz_addr(address, 32)
-			-- address = address + 4
-		-- end
-	-- end
-	-- if bit.check(RList,15) then
-		-- local value = utility.load_biz_addr(address, 32)
-		-- registers[15] = bit.band(value,0xFFFFFFFC)	--GBA is ARMv4, so no need to check if ARMv5+
-		-- address = address + 4
-	-- end
-	-- local end_cond = ()
--- end
+	--[[3 versions:
+	1. Load Multiple 
+	2. User Registers Load Multiple
+	3. Load Multiple with Restore CPSR
+	LDM(1) - S (bit 22) == 0, L (bit 20) == 1
+	LDM(2) - S (bit 22) == 1, L (bit 20) == 1, W (bit 21) == 0, bit 15 == 0
+	LDM(3) - S (bit 22) == 1, L (bit 20) == 1, W varies, bit 15 == 1
+	]]--
+function utility.LDM1(P, U, W, Rn, RList, registers)
+	--it's 16 bits, so split the number into 4
+	local bits_set = num_to_bits[bit.band(RList, 0xF)] 
+	bits_set = bits_set + num_to_bits[bit.band(RList, 0xF0)] 
+	bits_set = bits_set + num_to_bits[bit.band(RList, 0xF00)] 
+	bits_set = bits_set + num_to_bits[bit.band(RList, 0xF000)] 
+	local address = 0
+	local end_address = 0
+	local new_Rn = 0
+	local increment_flag = P * 2 + U --Combine the 2 flags into 1
+	local end_cond = false
+	
+	--We need to make 4 for loops, but...
+	if increment_flag == 0 then	--DA (Decrement After)
+		--ARM Manual A5-45
+		start_address = Rn - (bits_set * 4) + 4
+		end_address = Rn
+		new_Rn = start_address - 4
+		for i = 0, 14 do
+			registers[i] = utility.load_biz_addr(address, 32)
+			address = address - 4
+		end
+		if bit.check(RList,15) then
+			local value = utility.load_biz_addr(address, 32)
+			registers[15] = bit.band(value,0xFFFFFFFC)	--GBA is ARMv4, so no need to check if ARMv5+
+			address = address - 4
+		end
+		end_cond = (address == end_address + 4)
+		
+	elseif increment_flag == 1 then	--IA (Increment After)
+		--ARM Manual A5-43
+		address = Rn
+		end_address = Rn + (bits_set * 4) - 4
+		new_Rn = W == 1 and end_address - 4 or Rn
+		for i = 0, 14 do
+			registers[i] = utility.load_biz_addr(address, 32)
+			address = address + 4
+		end
+		if bit.check(RList,15) then
+			local value = utility.load_biz_addr(address, 32)
+			registers[15] = bit.band(value,0xFFFFFFFC)	--GBA is ARMv4, so no need to check if ARMv5+
+			address = address + 4
+		end
+		end_cond = (address == end_address - 4)
+		
+	elseif increment_flag == 2 then	--DB (Decrement Before)
+		--ARM Manual A5-46
+		start_address = Rn - (bits_set * 4)
+		end_address = Rn - 4
+		new_Rn = W == 1 and start_address or Rn
+		for i = 0, 14 do
+			address = address - 4
+			registers[i] = utility.load_biz_addr(address, 32)
+		end
+		if bit.check(RList,15) then
+			address = address - 4
+			local value = utility.load_biz_addr(address, 32)
+			registers[15] = bit.band(value,0xFFFFFFFC)	--GBA is ARMv4, so no need to check if ARMv5+
+		end
+		end_cond = (address == end_address)
+		
+	elseif increment_flag == 3 then	--IB (Increment Before)
+		--ARM Manual A5-44
+		start_address = Rn + 4
+		end_address = Rn + (bits_set * 4)
+		new_Rn = W == 1 and end_address or Rn
+		for i = 0, 14 do
+			address = address + 4
+			registers[i] = utility.load_biz_addr(address, 32)
+		end
+		if bit.check(RList,15) then
+			address = address + 4
+			local value = utility.load_biz_addr(address, 32)
+			registers[15] = bit.band(value,0xFFFFFFFC)	--GBA is ARMv4, so no need to check if ARMv5+
+		end
+		end_cond = (address == end_address)
+		
+	else
+		console.log("LDM (1) flag error")
+		return
+	end
+	if end_cond then
+		registers[Rn] = new_Rn
+		return registers
+	else
+		console.log("LDM (1) End condition failed")
+	end
+end
+
+--ARM Manual A4-189, A4-191
+	--[[2 versions:
+	1. Store Multiple 
+	2. User Registers Store Multiple
+	STM(1) - S (bit 22) == 0, L (bit 20) == 0, W (bit 21) varies
+	STM(2) - S (bit 22) == 1, L (bit 20) == 0, W (bit 21) == 0
+	]]--
+function utility.STM1(P, U, W, Rn, RList, registers)
+	--it's 16 bits, so split the number into 4
+	local bits_set = num_to_bits[bit.band(RList, 0xF)] 
+	bits_set = bits_set + num_to_bits[bit.band(RList, 0xF0)] 
+	bits_set = bits_set + num_to_bits[bit.band(RList, 0xF00)] 
+	bits_set = bits_set + num_to_bits[bit.band(RList, 0xF000)] 
+	local address = 0
+	local end_address = 0
+	local new_Rn = 0
+	local increment_flag = P * 2 + U --Combine the 2 flags into 1
+	local end_cond = false
+	
+	--We need to make 4 for loops, but...
+	if increment_flag == 0 then	--DA (Decrement After)
+		--ARM Manual A5-45
+		start_address = Rn - (bits_set * 4) + 4
+		end_address = Rn
+		new_Rn = start_address - 4
+		for i = 0, 15 do
+			utility.write_biz_addr(address, registers[i], 32)
+			address = address - 4
+		end
+		end_cond = (address == end_address + 4)
+		
+	elseif increment_flag == 1 then	--IA (Increment After)
+		--ARM Manual A5-43
+		address = Rn
+		end_address = Rn + (bits_set * 4) - 4
+		new_Rn = W == 1 and end_address - 4 or Rn
+		for i = 0, 14 do
+			utility.write_biz_addr(address, registers[i], 32)
+			address = address + 4
+		end
+		end_cond = (address == end_address - 4)
+		
+	elseif increment_flag == 2 then	--DB (Decrement Before)
+		--ARM Manual A5-46
+		start_address = Rn - (bits_set * 4)
+		end_address = Rn - 4
+		new_Rn = W == 1 and start_address or Rn
+		for i = 0, 14 do
+			address = address - 4
+			utility.write_biz_addr(address, registers[i], 32)
+		end
+		end_cond = (address == end_address)
+		
+	elseif increment_flag == 3 then	--IB (Increment Before)
+		--ARM Manual A5-44
+		start_address = Rn + 4
+		end_address = Rn + (bits_set * 4)
+		new_Rn = W == 1 and end_address or Rn
+		for i = 0, 14 do
+			address = address + 4
+			utility.write_biz_addr(address, registers[i], 32)
+		end
+		end_cond = (address == end_address)
+		
+	else
+		console.log("STM (1) flag error")
+		return
+	end
+	if end_cond then
+		registers[Rn] = new_Rn
+		return registers
+	else
+		console.log("STM (1) End condition failed")
+	end
+end
+
+-- ARM Manual: A3-5 (ARM),  A4-10, A6-6 (THUMB), A7-19, A7-21
+function utility.B(Offset, r15, CPSR)
+	--don't set flags
+	--THUMB: A7-21
+	--Shifting the 11-bit signed offset of the instruction left one bit.
+	--Sign-extending the result to 32 bits
+	--Adding this to the contents of the PC (which contains the address of the branch instruction plus 4). 
+	--Lua is 64 bit however
+	--ARM: A4-10
+	--Sign extend the 24 bit immediate into 30 bits
+	--Shift the result left 2 bits to form a 32 bit value
+	--Add this to the contents of PC, which contains the address of the branch instruction +8 bytes
+	--To implement both in 1 function, check CPSR to determine if in ARM/THUMB mode
+	local result = 0
+	local pc = 2
+	if bit.check(CPSR, 5) then
+	--THUMB
+		result = bit.lshift(Offset, 1)
+		if bit.check(result, 11) then
+			result = bit.bor(-4096,result)	--writing as 0xFFFF FFFF FFFF F000 doesn't work
+			--result = bit.bor(0xFFFFF000,result)	--This works too
+			result = result - 0x100000000	--??
+		end
+	else
+	--ARM
+	--0x3E000000 is bits 25-29 set to 1. Bit 29 is the 30th bit
+		pc = 4
+		result = bit.check(Offset, 24) and Offset + 0x3E000000 or Offset
+		result = bit.lshift(result, 2)
+		result = bit.check(Offset, 31) and result - 0x100000000 or result
+	end
+	--technically you're supposed to jump by 4, and not increment PC again, but making this +2 with PC also +2 makes life easier
+	return r15 + result + pc
+end
+
 
 --Arith without ADC use
 --ARM Manual A4-6 (ARM), A7-5, A7-6, A7-7, A7-8, A7-9, A7-10, A7-11, A7-12 (THUMB)
