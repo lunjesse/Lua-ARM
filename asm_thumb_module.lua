@@ -17,18 +17,6 @@ function asm_thumb_module.pc_to_inst(pc)
 	return utility.load_biz_addr(address,size)
 end
 
-
-function MUL(Rd, Rs, CPSR)
-	local result = Rd * Rs;
-	local N = bit.check(result,31) and 1 or 0
-	local Z = (result == 0) and 1 or 0
-	local C = bit.check(CPSR, 29) and 1 or 0
-	--C, V, Q flag unchanged
-	local V = bit.check(CPSR, 28) and 1 or 0
-	local Q = bit.check(CPSR, 27) and 1 or 0
-	return result, utility.set_flag(CPSR, N, Z, C, V, Q)
-end
-
 function BX(Rs, CPSR)
 --Implement "Entering THUMB state"
 --Bit 5 of CPSR is the THUMB flag; 0 for ARM, 1 for THUMB
@@ -44,23 +32,6 @@ Based on the trace log, it seems it's always zero'd
 end
 
 
-
-function B(Offset11, r15)
-	--don't set flags
-	--Shifting the 11-bit signed offset of the instruction left one bit.
-	--Sign-extending the result to 32 bits
-	--Adding this to the contents of the PC (which contains the address of the branch instruction plus 4). 
-	--Lua is 64 bit however
-	local result = bit.lshift(Offset11, 1)
-	if bit.check(result, 11) then
-		result = bit.bor(-4096,result)	--writing as 0xFFFF FFFF FFFF F000 doesn't work
-		--result = bit.bor(0xFFFFF000,result)	--This works too
-		result = result - 0x100000000	--??
-	end
-	--technically you're supposed to jump by 4, and not increment PC again, but making this +2 with PC also +2 makes life easier
-	return r15 + result + 2
-end
-
 function BL(offset,LR,PC,H_flag)
 	--don't set flags
 	--long branch with link
@@ -72,157 +43,6 @@ function BL(offset,LR,PC,H_flag)
 	else
 		local temp = PC
 		return bit.bor(temp,1), bit.lshift(offset,1) + LR
-	end
-end
-
---Format 16 Branch instructions
-function BEQ(offset, r15, CPSR)
-	--Branch if Z set (equal)
-	-- local Z = bit.check(CPSR, 30) and 1 or 0
-	if bit.check(CPSR, 30) then
-		return B(offset, r15)
-	else
-		return r15
-	end
-end
-
-function BNE(offset, r15, CPSR)
-	--Branch if Z clear (not equal)
-	-- local Z = bit.check(CPSR, 30) and 1 or 0
-	if bit.check(CPSR, 30) == false then
-		return B(offset, r15)
-	else
-		return r15
-	end
-end
-
-function BCS(offset, r15, CPSR)
-	--Branch if C set (unsigned higher or same)
-	-- local C = bit.check(CPSR, 29) and 1 or 0
-	if bit.check(CPSR, 29) then
-		return B(offset, r15)
-	else
-		return r15
-	end
-end
-
-function BCC(offset, r15, CPSR)
-	--Branch if C clear (unsigned lower)
-	-- local C = bit.check(CPSR, 29) and 1 or 0
-	if bit.check(CPSR, 29) == false then
-		return B(offset, r15)
-	else
-		return r15
-	end
-end
-
-function BMI(offset, r15, CPSR)
-	--Branch if N set (negative)
-	-- local N = bit.check(CPSR, 31) and 1 or 0
-	if bit.check(CPSR, 31) then
-		return B(offset, r15)
-	else
-		return r15
-	end
-end
-
-function BPL(offset, r15, CPSR)
-	--Branch if N clear (positive or zero)
-	-- local N = bit.check(CPSR, 31) and 1 or 0
-	if bit.check(CPSR, 31) == false then
-		return B(offset, r15)
-	else
-		return r15
-	end
-end
-
-function BVS(offset, r15, CPSR)
-	--Branch if V set (overflow)
-	-- local V = bit.check(CPSR, 28) and 1 or 0
-	if bit.check(CPSR, 28) then
-		return B(offset, r15)
-	else
-		return r15
-	end
-end
-
-function BVC(offset, r15, CPSR)
-	--Branch if V clear (no overflow)
-	-- local V = bit.check(CPSR, 28) and 1 or 0
-	if bit.check(CPSR, 28) == false then
-		return B(offset, r15)
-	else
-		return r15
-	end
-end
-
-function BHI(offset, r15, CPSR)
-	--Branch if C set and Z clear (unsigned higher)
-	-- local C = bit.check(CPSR, 29) and 1 or 0
-	-- local Z = bit.check(CPSR, 30) and 1 or 0
-	if bit.check(CPSR, 29) and bit.check(CPSR, 30) == false then
-		return B(offset, r15)
-	else
-		return r15
-	end
-end
-
-function BLS(offset, r15, CPSR)
-	--Branch if C clear or Z set (unsigned lower or same)
-	-- local C = bit.check(CPSR, 29) and 1 or 0
-	-- local Z = bit.check(CPSR, 30) and 1 or 0
-	if bit.check(CPSR, 29) == false or bit.check(CPSR, 30) then
-		return B(offset, r15)
-	else
-		return r15
-	end
-end
-
-function BGE(offset, r15, CPSR)
-	--Branch if N set and V set, or N clear and V clear (greater or equal)
-	--So basically N == V
-	-- local V = bit.check(CPSR, 28) and 1 or 0
-	-- local N = bit.check(CPSR, 31) and 1 or 0
-	if bit.check(CPSR, 28) == bit.check(CPSR, 31) then
-		return B(offset, r15)
-	else
-		return r15
-	end
-end
-
-function BLT(offset, r15, CPSR)
-	--Branch if N set and V clear, or N clear and V set (less than)
-	--So basically N ~= V
-	-- local V = bit.check(CPSR, 28) and 1 or 0
-	-- local N = bit.check(CPSR, 31) and 1 or 0
-	if bit.check(CPSR, 28) ~= bit.check(CPSR, 31) then
-		return B(offset, r15)
-	else
-		return r15
-	end
-end
-
-function BGT(offset, r15, CPSR)
-	--Branch if Z clear, and either N set and V set or N clear and V clear (greater than)
-	-- local V = bit.check(CPSR, 28) and 1 or 0
-	-- local Z = bit.check(CPSR, 30) and 1 or 0
-	-- local N = bit.check(CPSR, 31) and 1 or 0
-	if bit.check(CPSR, 30) == false and (bit.check(CPSR, 28) == bit.check(CPSR, 31)) then
-		return B(offset, r15)
-	else
-		return r15
-	end
-end
-
-function BLE(offset, r15, CPSR)
-	-- Branch if Z set, or N set and V clear, or N clear and V set (less than or equal)
-	-- local V = bit.check(CPSR, 28) and 1 or 0
-	-- local Z = bit.check(CPSR, 30) and 1 or 0
-	-- local N = bit.check(CPSR, 31) and 1 or 0
-	if bit.check(CPSR, 30) or (bit.check(CPSR, 28) ~= bit.check(CPSR, 31)) then
-		return B(offset, r15)
-	else
-		return r15
 	end
 end
 
@@ -390,8 +210,8 @@ end_address = SP - 4
 			addr = addr + 4
 		end
 	end
-	if R == 1 then 
-		utility.write_biz_addr(addr, Ri, 32)
+	if R == 1 then --Push R14 (Link Register) to stack
+		utility.write_biz_addr(addr, registers[14], 32)
 		addr = addr + 4
 	end
 	if (addr - 4) ~= end_addr then console.log("PUSH ERROR:\nAddress is "..hex(addr).." but End is: "..hex(end_addr)) end
@@ -476,23 +296,26 @@ end
 function thumb_format1(OP, Rd, Rs, Offset5, registers)
 	local temp_array = registers
 	local CPSR = registers.CPSR
-	local return_string = "Format 1: move shifted register: "
+	local return_string = {"Format 1: move shifted register: ", ""}
 	local end_string = " Rd, Rs, #Offset5\nRd: "..Rd.." ("..hex(registers[Rd])..") Rs: "..Rs.." ("..hex(registers[Rs])..") Offset5: "..Offset5
 	if OP == 0 then
 	--Shift Rs left by a 5-bit immediate value and store the result in Rd.
-		-- console.log(hex(temp_array[Rd]))
 		temp_array[Rd], temp_array.CPSR = utility.LSL(registers[Rs], Offset5, CPSR)
-		return_string = return_string.."LSL"..end_string
+		return_string[1] = return_string[1].."LSL"..end_string
+		return_string[2] = "LSL     r"..Rd..", r"..Rs..", #"..Offset5
 	elseif OP == 1 then
 	--Perform logical shift right on Rs by a 5-bit immediate value and store the result in Rd.
 		temp_array[Rd], temp_array.CPSR = utility.LSR1(registers[Rs], Offset5, CPSR)
-		return_string = return_string.."LSR"..end_string
+		return_string[1] = return_string[1].."LSR"..end_string
+		return_string[2] = "LSR     r"..Rd..", r"..Rs..", #"..Offset5
 	elseif OP == 2 then
 	--Perform arithmetic shift right on Rs by a 5-bit immediate value and store the result in Rd.
 		temp_array[Rd], temp_array.CPSR = utility.ASR1(registers[Rs], Offset5, CPSR)
-		return_string = return_string.."ASR"..end_string
+		return_string[1] = return_string[1].."ASR"..end_string
+		return_string[2] = "ASR     r"..Rd..", r"..Rs..", #"..Offset5
 	else
-		return_string = "Format 1 error"
+		return_string[1] = "Format 1 error"
+		return_string[2] = return_string[1]
 	end
 	return temp_array, return_string
 end
@@ -500,28 +323,34 @@ end
 function thumb_format2(OP, Rd, Rs, Rn, registers)
 	local temp_array = registers
 	local CPSR = registers.CPSR
-	local return_string = "Format 2: add/subtract: "
+	local return_string = {"Format 2: add/subtract: ", ""}
 	local end_string = " Rd, Rs, Rn\nRd: "..Rd.." ("..hex(registers[Rd])..") Rs: "..Rs.." ("..hex(registers[Rs])..")"
 	local end_string2 = end_string.." Rn: "..Rn.." ("..hex(registers[Rn])..")"
-	local end_string3 = end_string.." Offset3: "..Rn	--its 3 bits, no need to make it hex
+	local Offset3 = Rn	--Make it explicit this is the same
+	local end_string3 = end_string.." Offset3: "..Offset3	--its 3 bits, no need to make it hex
 	if OP == 0 then
 --Add contents of Rn to contents of Rs. Place result in Rd
 		temp_array[Rd], temp_array.CPSR = utility.ADD(registers[Rs], registers[Rn], CPSR)
-		return_string = return_string.."ADD"..end_string2
+		return_string[1] = return_string[1].."ADD"..end_string2
+		return_string[2] = "ADD     r"..Rd..", r"..Rs..", r"..Rn
 	elseif OP == 1 then
 --Subtract contents of Rn from contents of Rs. Place result in Rd.
 		temp_array[Rd], temp_array.CPSR = utility.SUB(registers[Rs], registers[Rn], CPSR)
-		return_string = return_string.."SUB"..end_string2
+		return_string[1] = return_string[1].."SUB"..end_string2
+		return_string[2] = "SUB     r"..Rd..", r"..Rs..", r"..Rn
 	elseif OP == 2 then
 --Add 3-bit immediate value to contents of Rs. Place result in Rd.
 		temp_array[Rd], temp_array.CPSR = utility.ADD(registers[Rs], Offset3, CPSR)
-		return_string = return_string.."ADD"..end_string3
+		return_string[1] = return_string[1].."ADD"..end_string3
+		return_string[2] = "ADD     r"..Rd..", r"..Rs..", #"..Offset3
 	elseif OP == 3 then
 --Subtract 3-bit immediate value from contents of Rs. Place result in Rd.
 		temp_array[Rd], temp_array.CPSR = utility.SUB(registers[Rs], Offset3, CPSR)
-		return_string = return_string.."SUB"..end_string3
+		return_string[1] = return_string[1].."SUB"..end_string3
+		return_string[2] = "SUB     r"..Rd..", r"..Rs..", #"..Offset3
 	else
-		return_string = "Format 2 error"
+		return_string[1] = "Format 2 error"
+		return_string[2] = return_string[1]
 	end
 	return temp_array, return_string
 end
@@ -529,26 +358,31 @@ end
 function thumb_format3(OP, Rd, Offset8, registers)
 	local temp_array = registers
 	local CPSR = registers.CPSR
-	local return_string = " Format 3: move/compare/add/subtract immediate: "
+	local return_string = {"Format 3: move/compare/add/subtract immediate: ", ""}
 	local end_string = " Rd, #Offset8\nRd: "..Rd.." ("..hex(registers[Rd])..") Offset8: "..Offset8
 	if OP == 0 then
 	--Move 8-bit immediate value into Rd.
 		temp_array[Rd], temp_array.CPSR = utility.MOV(_, Offset8, CPSR)
-		return_string = return_string.."MOV"..end_string
+		return_string[1] = return_string[1].."MOV"..end_string
+		return_string[2] = "MOV     r"..Rd..", #"..Offset8
 	elseif OP == 1 then
 	--Compare contents of Rd with 8-bit immediate value.
 		temp_array[Rd], temp_array.CPSR = utility.CMP(registers[Rd], Offset8, CPSR)
-		return_string = return_string.."CMP"..end_string
+		return_string[1] = return_string[1].."CMP"..end_string
+		return_string[2] = "CMP     r"..Rd..", #"..Offset8
 	elseif OP == 2 then
 	--Add 8-bit immediate value to contents of Rd and place the result in Rd.
 		temp_array[Rd], temp_array.CPSR = utility.ADD(registers[Rd], Offset8, CPSR)
-		return_string = return_string.."ADD"..end_string
+		return_string[1] = return_string[1].."ADD"..end_string
+		return_string[2] = "ADD     r"..Rd..", #"..Offset8
 	elseif OP == 3 then
 	--Subtract 8-bit immediate value from contents of Rd and place the result in Rd.
 		temp_array[Rd], temp_array.CPSR = utility.SUB(registers[Rd],Offset8, CPSR)
-		return_string = return_string.."SUB"..end_string
+		return_string[1] = return_string[1].."SUB"..end_string
+		return_string[2] = "SUB     r"..Rd..", #"..Offset8
 	else
-		return_string = "Format 3 error"
+		return_string[1] = "Format 3 error"
+		return_string[2] = return_string[1]
 	end
 	return temp_array, return_string
 end
@@ -556,78 +390,96 @@ end
 function thumb_format4(OP, Rs, Rd, registers)
 	local temp_array = registers
 	local CPSR = registers.CPSR
-	local return_string = "Format 4: ALU operations: "
+	local return_string = {"Format 4: ALU operations: ", ""}
 	local end_string = " Rd, Rs\nRd: "..Rd.." ("..hex(registers[Rd])..") Rs: "..Rs.." ("..hex(registers[Rs])..")"
 	if OP == 0  then
 	--Rd:= Rd AND Rs
 		temp_array[Rd], temp_array.CPSR = utility.AND(registers[Rd], registers[Rs], CPSR)
-		return_string = return_string.."AND"..end_string
+		return_string[1] = return_string[1].."AND"..end_string
+		return_string[2] = "AND     r"..Rd..", r"..Rs
 	elseif OP == 1  then
 	--Rd:= Rd EOR Rs
 		temp_array[Rd], temp_array.CPSR = utility.EOR(registers[Rd], registers[Rs], CPSR)
-		return_string = return_string.."EOR"..end_string
+		return_string[1] = return_string[1].."EOR"..end_string
+		return_string[2] = "EOR     r"..Rd..", r"..Rs
 	elseif OP == 2  then
 	--Rd := Rd << Rs
 		temp_array[Rd], temp_array.CPSR = utility.LSL(registers[Rd], registers[Rs], CPSR)
-		return_string = return_string.."LSL"..end_string
+		return_string[1] = return_string[1].."LSL"..end_string
+		return_string[2] = "LSL     r"..Rd..", r"..Rs
 	elseif OP == 3  then
 	--Rd := Rd >> Rs
 		temp_array[Rd], temp_array.CPSR = utility.LSR2(registers[Rd], registers[Rs], CPSR)
-		return_string = return_string.."LSR"..end_string
+		return_string[1] = return_string[1].."LSR"..end_string
+		return_string[2] = "LSR     r"..Rd..", r"..Rs
 	elseif OP == 4  then
 	--Rd := Rd ASR Rs
 		temp_array[Rd], temp_array.CPSR = utility.ASR2(registers[Rd], registers[Rs], CPSR)
-		return_string = return_string.."ASR"..end_string
+		return_string[1] = return_string[1].."ASR"..end_string
+		return_string[2] = "ASR     r"..Rd..", r"..Rs
 	elseif OP == 5  then
 	--Rd := Rd + Rs + C-bit
 		temp_array[Rd], temp_array.CPSR = utility.ADC(registers[Rd], registers[Rs], CPSR)
-		return_string = return_string.."ADC"..end_string
+		return_string[1] = return_string[1].."ADC"..end_string
+		return_string[2] = "ADC     r"..Rd..", r"..Rs
 	elseif OP == 6  then
 	--Rd := Rd - Rs - NOT C-bit
 		temp_array[Rd], temp_array.CPSR = utility.SBC(registers[Rd], registers[Rs], CPSR)
-		return_string = return_string.."SBC"..end_string
+		return_string[1] = return_string[1].."SBC"..end_string
+		return_string[2] = "SBC     r"..Rd..", r"..Rs
 	elseif OP == 7  then
 	--Rd := Rd ROR Rs
 		temp_array[Rd], temp_array.CPSR = utility.ROR(registers[Rd], registers[Rs], CPSR)
-		return_string = return_string.."ROR"..end_string
+		return_string[1] = return_string[1].."ROR"..end_string
+		return_string[2] = "ROR     r"..Rd..", r"..Rs
 	elseif OP == 8  then
 	--Set condition codes on Rd AND R
 		temp_array[Rd], temp_array.CPSR = utility.TST(registers[Rd], registers[Rs], CPSR)
-		return_string = return_string.."TST"..end_string
+		return_string[1] = return_string[1].."TST"..end_string
+		return_string[2] = "TST     r"..Rd..", r"..Rs
 	elseif OP == 9  then
 	--Rd = 0-Rs
 		temp_array[Rd], temp_array.CPSR = utility.NEG(registers[Rs], CPSR)
-		return_string = return_string.."NEG"..end_string
+		return_string[1] = return_string[1].."NEG"..end_string
+		return_string[2] = "NEG     r"..Rd..", r"..Rs
 	elseif OP == 10  then
 	--Set condition codes on Rd - Rs
 		temp_array[Rd], temp_array.CPSR = utility.CMP(registers[Rd], registers[Rs], CPSR)
-		return_string = return_string.."CMP"..end_string
+		return_string[1] = return_string[1].."CMP"..end_string
+		return_string[2] = "CMP     r"..Rd..", r"..Rs
 	elseif OP == 11  then
 	--Set condition codes on Rd + Rs
 		temp_array[Rd], temp_array.CPSR = utility.CMN(registers[Rd], registers[Rs], CPSR)
-		return_string = return_string.."CMN"..end_string
+		return_string[1] = return_string[1].."CMN"..end_string
+		return_string[2] = "CMN     r"..Rd..", r"..Rs
 	elseif OP == 12  then
 	--Rd := Rd OR Rs
 		temp_array[Rd] = utility.ORR(registers[Rd], registers[Rs], CPSR)
-		return_string = return_string.."ORR"..end_string
+		return_string[1] = return_string[1].."ORR"..end_string
+		return_string[2] = "ORR     r"..Rd..", r"..Rs
 	elseif OP == 13 then
 	--Rd := Rs * Rd
-		temp_array[Rd] = MUL(registers[Rd], registers[Rs], CPSR)
-		return_string = return_string.."MUL"..end_string
+		temp_array[Rd] = utility.MUL(registers[Rd], registers[Rs], CPSR)
+		return_string[1] = return_string[1].."MUL"..end_string
+		return_string[2] = "MUL     r"..Rd..", r"..Rs
 	elseif OP == 14  then
 	--Rd := Rd AND NOT Rs
 		temp_array[Rd], temp_array = utility.BIC(registers[Rd], registers[Rs], CPSR)
-		return_string = return_string.."BIC"..end_string
+		return_string[1] = return_string[1].."BIC"..end_string
+		return_string[2] = "BIC     r"..Rd..", r"..Rs
 	elseif OP == 15  then
 	--Rd := NOT Rs
 		temp_array[Rd] = utility.MVN(_, registers[Rs], CPSR)
-		return_string = return_string.."MVN"..end_string
+		return_string[1] = return_string[1].."MVN"..end_string
+		return_string[2] = "MVN     r"..Rd..", r"..Rs
 	else
-		return_string = "Format 4 error"
+		return_string[1] = "Format 4 error"
+		return_string[2] = return_string[1]
 	end
 	return temp_array, return_string
 end
 
+local hi_reg_string = {[8] = "r8", [9] = "r9", [10] = "r10", [11] = "r11", [12] = "r12", [13] = "SP", [14] = "LR", [15] = "PC"}
 function thumb_format5(OP, H1, H2, Rs, Rd, registers)
 	local temp_array = registers
 	local CPSR = registers.CPSR
@@ -635,16 +487,18 @@ function thumb_format5(OP, H1, H2, Rs, Rd, registers)
 	local Hs = bit.lshift(H2, 3) + Rs
 	--Combine OP and H1/H2 to avoid nested ifs for OP + H1 =? H2
 	OP = bit.lshift(OP, 2) + bit.lshift(H1, 1) + H2
-	local return_string = "Format 5: Hi register operations/branch exchange: "
+	local return_string = {"Format 5: Hi register operations/branch exchange: ", ""}
 	local end_string = " Rd, Hs\nRd: "..Rd.." ("..hex(registers[Rd])..") Hs: "..Hs.." ("..hex(registers[Hs])..")"
 	local end_string2 = " Hd, Rs\nRd: "..Hd.." ("..hex(registers[Hd])..") Rs: "..Rs.." ("..hex(registers[Rs])..")"
 	local end_string3 = " Hd, Hs\nRd: "..Hd.." ("..hex(registers[Hd])..") Hs: "..Hs.." ("..hex(registers[Hs])..")"
 	if OP == 0 then
-		return_string = "Format 5 error 1"	--undefined
+		return_string[1] = "Format 5 error 1"	--undefined
+		return_string[2] = return_string[1]
 	elseif OP == 1 then
 	--Add a register in the range 8-15 to a register in the range 0-7.
 		temp_array[Rd], temp_array.CPSR = utility.ADD(registers[Rd], registers[Hs], temp_array.CPSR)
-		return_string = return_string.."ADD"..end_string
+		return_string[1] = return_string[1].."ADD"..end_string
+		return_string[2] = "ADD     r"..Rd..", "..hi_reg_string[Hs]
 	elseif OP == 2 then
 	--Add a register in the range 0-7 to a register in the range 8-15.
 	--Don't set condition codes on R15/PC!
@@ -653,49 +507,61 @@ function thumb_format5(OP, H1, H2, Rs, Rd, registers)
 		else
 			temp_array[Hd], temp_array.CPSR = utility.ADD(registers[Hd], registers[Rs], temp_array.CPSR)
 		end
-		return_string = return_string.."ADD"..end_string2
+		return_string[1] = return_string[1].."ADD"..end_string2
+		return_string[2] = "ADD     "..hi_reg_string[Hd]..", r"..Rs
 	elseif OP == 3 then
 	--Add two registers in the range 8-15
 		temp_array[Hd], temp_array.CPSR = utility.ADD(registers[Hd], registers[Hs], temp_array.CPSR)
-		return_string = return_string.."ADD"..end_string3
+		return_string[1] = return_string[1].."ADD"..end_string3
+		return_string[2] = "ADD     "..hi_reg_string[Hd]..", "..hi_reg_string[Hs]
 	elseif OP == 4 then
-		return_string = "Format 5 error 2"	--undefined
+		return_string[1] = "Format 5 error 2"	--undefined
 	elseif OP == 5 then
 	--Compare a register in the range 0-7 with a register in the range 8-15.
 		temp_array[Rd], temp_array.CPSR = utility.CMP(registers[Rd], registers[Hs], CPSR)
-		return_string = return_string.."CMP"..end_string
+		return_string[1] = return_string[1].."CMP"..end_string
+		return_string[2] = "CMP     r"..Rd..", "..hi_reg_string[Hs]
 	elseif OP == 6 then
 	--Compare a register in the range 8-15 with a register in the range 0-7.
 		temp_array[Hd], temp_array.CPSR = utility.CMP(registers[Hd], registers[Rs], CPSR)
-		return_string = return_string.."CMP"..end_string2
+		return_string[1] = return_string[1].."CMP"..end_string2
+		return_string[2] = "CMP     "..hi_reg_string[Hd]..", r"..Rs
 	elseif OP == 7 then
 	-- Compare two registers in the range 8-15.
 		temp_array[Hd], temp_array.CPSR = utility.CMP(registers[Hd], registers[Hs], CPSR)
-		return_string = return_string.."CMP"..end_string3
+		return_string[1] = return_string[1].."CMP"..end_string3
+		return_string[2] = "CMP     "..hi_reg_string[Hd]..", "..hi_reg_string[Hs]
 	elseif OP == 8 then
-		return_string = "Format 5 error 3"	--undefined
+		return_string[1] = "Format 5 error 3"	--undefined
+		return_string[2] = return_string[1]
 	elseif OP == 9 then
 	--Move a value from a register in the range 8-15 to a register in the range 0-7.
 		temp_array[Rd], temp_array.CPSR = utility.MOV(_, registers[Hs], CPSR)
-		return_string = return_string.."MOV"..end_string
+		return_string[1] = return_string[1].."MOV"..end_string
+		return_string[2] = "MOV     r"..Rd..", "..hi_reg_string[Hs]
 	elseif OP == 10 then
 	--Move a value from a register in the range 0-7 to a register in the range 8-15.
 		temp_array[Hd], temp_array.CPSR = utility.MOV(_, registers[Rs], CPSR)
-		return_string = return_string.."MOV"..end_string2
+		return_string[1] = return_string[1].."MOV"..end_string2
+		return_string[2] = "MOV     "..hi_reg_string[Hd]..", r"..Rs
 	elseif OP == 11 then
 	--Move a value between two registers in the range 8-15.
 		temp_array[Hd], temp_array.CPSR = utility.MOV(_, registers[Hs], CPSR)
-		return_string = return_string.."MOV"..end_string3
+		return_string[1] = return_string[1].."MOV"..end_string3
+		return_string[2] = "MOV     "..hi_reg_string[Hd]..", "..hi_reg_string[Hs]
 	elseif OP == 12 then
 	--Perform branch (plus optional state change) to address in a register in the range 0-7.
 		temp_array[15], temp_array.CPSR = BX(registers[Rs], CPSR)
-		return_string = return_string.." BX Rs\nRs: "..Rs.." ("..hex(registers[Rs])..")"
+		return_string[1] = return_string[1].." BX Rs\nRs: "..Rs.." ("..hex(registers[Rs])..")"
+		return_string[2] = "BX      r"..Rs
 	elseif OP == 13 then
 	--Perform branch (plus optional state change) to address in a register in the range 8-15.
 		temp_array[15], temp_array.CPSR = BX(registers[Hs], CPSR)
-		return_string = return_string.."BX Hs\nHs: "..Hs.." ("..hex(registers[Hs])..")"
+		return_string[1] = return_string[1].."BX Hs\nHs: "..Hs.." ("..hex(registers[Hs])..")"
+		return_string[2] = "BX      "..hi_reg_string[Hs]
 	else
-		return_string = "Format 5 error 4"	--14, 15 are undefined
+		return_string[1] = "Format 5 error 4"	--14, 15 are undefined
+		return_string[2] = return_string[1]
 	end
 	temp_array[15] = bit.band(0xFFFFFFFE,temp_array[15])	--set last bit to 0 for register 15 in case it gets set by MOV
 	return temp_array, return_string
@@ -706,9 +572,11 @@ function thumb_format6(Rd, Word8, registers)
 	--Add unsigned offset (255 words, 1020 bytes) in Imm to the current value of the PC. 
 	--Load the word from the resulting address into Rd
 	local this = bit.check(registers[15],1) and 4 or 0	--Add 4 or 0 depending on ARM/THUMB mode
+	local offset = Word8 * 4	--Word8 * 4 since Imm is shifted to the right by 2
 	-- console.log("location :"..hex(bit.band(registers[15],0xFFFFFFFC) + this + (Word8 * 4)))
-	temp_array[Rd] = utility.LDR(bit.band(registers[15],0xFFFFFFFC)+this, Word8 * 4)	--Word8 * 4 since Imm is shifted to the right by 2
-	local return_string = "Format 6: PC-relative load: LDR (load the value from PC + offset to Rd): LDR Rd, [PC, #Imm]\nRd: "..Rd.." PC: "..hex(registers[15]).." Imm: "..Word8
+	temp_array[Rd] = utility.LDR(bit.band(registers[15],0xFFFFFFFC)+this, offset)	
+	local return_string = {"Format 6: PC-relative load: LDR (load the value from PC + offset to Rd): LDR Rd, [PC, #Imm]\nRd: "..Rd.." PC: "..hex(registers[15]).." Imm: "..Word8, ""}
+	return_string[2] = "LDR     r"..Rd..", [PC, #"..offset.."]"
 	return temp_array, return_string
 end
 
@@ -718,30 +586,38 @@ function thumb_format7(L, B, Ro, Rb, Rd, registers, definition)
 	--That way, we won't mess things up (probably)
 	local temp_array = registers
 	local CPSR = registers.CPSR
-	local return_string = "Format 7: load/store with register offset: "
+	local return_string = {"Format 7: load/store with register offset: ", ""}
 	local end_string = " Rd, [Rb, Ro]\nRd: "..Rd.." ("..hex(registers[Rd])..") Rb: "..Rb.."("..hex(registers[Rb])..") Ro: "..Ro.."("..hex(registers[Ro])..")"
 	local OP = (L * 2) + B	--Left shift L once, then add B to combine them
 	local base = registers[Rb]
 	local offset = registers[Ro]
 	local value = registers[Rd]
+	
+	local end_string2 = offset == 0 and "]" or ", r"..Ro.."]"	--Probably should make a better name
+	
 	if OP == 0 then
 	--Pre-indexed word store: Calculate the target address by adding together the value in Rb and the value in Ro. Store the contents of Rd at the address.
 		if definition ~= true then utility.STR(base, offset, value) end
-		return_string = return_string.."STR"..end_string
+		return_string[1] = return_string[1].."STR"..end_string
+		return_string[2] = "STR     r"..Rd..", [r"..Rb..end_string2
 	elseif OP == 1 then
 	--Pre-indexed byte store: Calculate the target address by adding together the value in Rb and the value in Ro. Store the byte value in Rd at the resulting address.
 		if definition ~= true then utility.STRB(base, offset, value) end
-		return_string = return_string.."STRB"..end_string
+		return_string[1] = return_string[1].."STRB"..end_string
+		return_string[2] = "STRB    r"..Rd..", [r"..Rb..end_string2
 	elseif OP == 2 then
 	--Pre-indexed word load: Calculate the source address by adding together the value in Rb and the value in Ro. Load the contents of the address into Rd.
 		temp_array[Rd] = utility.LDR(base, offset)
-		return_string = return_string.."LDR"..end_string
+		return_string[1] = return_string[1].."LDR"..end_string
+		return_string[2] = "LDR     r"..Rd..", [r"..Rb..end_string2
 	elseif OP == 3 then
 	--Pre-indexed byte load: Calculate the source address by adding together the value in Rb and the value in Ro. Load the byte value at the resulting address.
 		temp_array[Rd] = utility.LDRB(base, offset)
-		return_string = return_string.."LDRB"..end_string
+		return_string[1] = return_string[1].."LDRB"..end_string
+		return_string[2] = "LDRB    r"..Rd..", [r"..Rb..end_string2
 	else	--If for some reason you placed 4 or higher
-		return_string = "Format 7 error"
+		return_string[1] = "Format 7 error"
+		return_string[2] = return_string[1]
 	end
 	return temp_array, return_string
 end
@@ -752,30 +628,39 @@ function thumb_format8(H, S, Ro, Rb, Rd, registers, definition)
 	--That way, we won't mess things up (probably)
 	local temp_array = registers
 	local CPSR = registers.CPSR
-	local return_string = "Format 8: load/store sign-extended byte/halfword: "
+	local return_string = {"Format 8: load/store sign-extended byte/halfword: ", ""}
 	local end_string = " Rd, [Rb, Ro]\nRd: "..Rd.." ("..hex(registers[Rd])..") Rb: "..Rb.."("..hex(registers[Rb])..") Ro: "..Ro.."("..hex(registers[Ro])..")"
+	
 	local OP = (H * 2) + S	--Left shift H once, then add S to combine them
 	local base = registers[Rb]
 	local offset = registers[Ro]
 	local value = registers[Rd]
+	
+	local end_string2 = offset == 0 and "]" or ", #"..offset.."]"	--Probably should make a better name
+	
 	if OP == 0 then
 	--Store halfword: Add Ro to base address in Rb. Store bits 0-15 of Rd at the resulting address.
 		if definition ~= true then utility.STRH(base, offset, value) end
-		return_string = return_string.."STRH"..end_string
+		return_string[1] = return_string[1].."STRH"..end_string
+		return_string[2] = "STRH    r"..Rd..", [r"..Rb..end_string2
 	elseif OP == 1 then
 	--Load sign-extended byte: Add Ro to base address in Rb. Load bits 0-7 of Rd from the resulting address, and set bits 8-31 of Rd to bit 7.
 		temp_array[Rd] = utility.LDRSB(base, offset)
-		return_string = return_string.."LDRSB"..end_string
+		return_string[1] = return_string[1].."LDRSB"..end_string
+		return_string[2] = "LDRSB   r"..Rd..", [r"..Rb..end_string2
 	elseif OP == 2 then
 	--Load halfword: Add Ro to base address in Rb. Load bits 0-15 of Rd from the resulting address, and set bits 16-31 of Rd to 0.
 		temp_array[Rd] = utility.LDRH(base, offset)
-		return_string = return_string.."LDRH"..end_string
+		return_string[1] = return_string[1].."LDRH"..end_string
+		return_string[2] = "LDRH    r"..Rd..", [r"..Rb..end_string2
 	elseif OP == 3 then
 	-- Load sign-extended halfword: Add Ro to base address in Rb. Load bits 0-15 of Rd from the resulting address, and set bits 16-31 of Rd to bit 15.
 		temp_array[Rd] = utility.LDRSH(base, offset)
-		return_string = return_string.."LDRSH"..end_string
+		return_string[1] = return_string[1].."LDRSH"..end_string
+		return_string[2] = "LDRSH   r"..Rd..", [r"..Rb..end_string2
 	else
-		return_string = "Format 8 error"
+		return_string[1] = "Format 8 error"
+		return_string[2] = return_string[1]
 	end
 	return temp_array, return_string
 end
@@ -787,29 +672,38 @@ function thumb_format9(B, L, Offset5, Rb, Rd, registers, definition)
 	local temp_array = registers
 	local CPSR = registers.CPSR
 	local OP = (B * 2) + L	--Left shift B once, then add L to combine them
-	local return_string = "Format 9: load/store with immediate offset: "
+	local return_string = {"Format 9: load/store with immediate offset: ", ""}
 	local end_string = " Rd, [Rb, #Imm]\nRd: "..Rd.." ("..hex(registers[Rd])..") Rb: "..Rb.." ("..hex(registers[Rb])..") Imm: "..Offset5
 	local base = registers[Rb]
 	local offset = B == 0 and Offset5 * 4 or Offset5	--Shift this to the left by 2 if B == 0 (word access)
 	local value = registers[Rd]
+	
+	local end_string2 = offset == 0 and "]" or ", #"..offset.."]"	--Probably should make a better name
+	
+	
 	if OP == 0 then
 	--Calculate the target address by adding together the value in Rb and Imm. Store the contents of Rd at the address.
 		if definition ~= true then utility.STR(base, offset, value) end
-		return_string = return_string.."STR"..end_string
+		return_string[1] = return_string[1].."STR"..end_string
+		return_string[2] = "STR     r"..Rd..", [r"..Rb..end_string2
 	elseif OP == 1 then
 	--Calculate the source address by adding together the value in Rb and Imm. Load Rd from the address.
 		temp_array[Rd] = utility.LDR(base, offset)
-		return_string = return_string.."LDR"..end_string
+		return_string[1] = return_string[1].."LDR"..end_string
+		return_string[2] = "LDR     r"..Rd..", [r"..Rb..end_string2
 	elseif OP == 2 then
 	--Calculate the target address by adding together the value in Rb and Imm. Store the byte value in Rd at the address.
 		if definition ~= true then utility.STRB(base, offset, value) end
-		return_string = return_string.."STRB"..end_string
+		return_string[1] = return_string[1].."STRB"..end_string
+		return_string[2] = "STRB    r"..Rd..", [r"..Rb..end_string2
 	elseif OP == 3 then
 	--Calculate source address by adding together the value in Rb and Imm. Load the byte value at the address into Rd.
 		temp_array[Rd] = utility.LDRB(base, offset)
-		return_string = return_string.."LDRB"..end_string
+		return_string[1] = return_string[1].."LDRB"..end_string
+		return_string[2] = "LDRB    r"..Rd..", [r"..Rb..end_string2
 	else
-		return_string = "Format 9 error"
+		return_string[1] = "Format 9 error"
+		return_string[2] = return_string[1]
 	end
 	return temp_array, return_string
 end
@@ -820,24 +714,30 @@ function thumb_format10(L, Offset5, Rb, Rd, registers, definition)
 	--That way, we won't mess things up (probably)
 	local temp_array = registers
 	local CPSR = registers.CPSR
-	local return_string = "Format 10: load/store halfword: "
+	local return_string = {"Format 10: load/store halfword: ", ""}
 	local end_string = " Rd, [Rb, #Imm]\nRd: "..Rd.." ("..hex(registers[Rd])..") Rb: "..Rb.." ("..hex(registers[Rb])..") Imm: "..Offset5
 	--Format 10 shifts offset5 left by 1
 	--Doing this here so as to reuse the LDR/STR functions above
 	local base = registers[Rb]
 	local offset = Offset5 * 2
 	local value = registers[Rd]
+	
+	local end_string2 = offset == 0 and "]" or ", #"..offset.."]"	--Probably should make a better name
+	
 	if L == 0 then 
 	--Format 10: load/store halfword
 	--Add #Imm to base address in Rb and store bits 0-15 of Rd at the resulting address.
 		if definition ~= true then utility.STRH(base, offset, value) end
-		return_string = return_string.."STRH"..end_string
+		return_string[1] = return_string[1].."STRH"..end_string
+		return_string[2] = "STRH    r"..Rd..", [r"..Rb..end_string2
 	elseif L == 1 then
 	--Add #Imm to base address in Rb. Load bits 0-15 from the resulting address into Rd and set bits 16-31 to zero.
 		temp_array[Rd] = utility.LDRH(base, offset)
-		return_string = return_string.."LDRH"..end_string
+		return_string[1] = return_string[1].."LDRH"..end_string
+		return_string[2] = "LDRH    r"..Rd..", [r"..Rb..end_string2
 	else	--If for some reason you placed 2 or higher
-		return_string = "Format 10 error"
+		return_string[1] = "Format 10 error"
+		return_string[2] = return_string[1]
 	end
 	return temp_array, return_string
 end
@@ -848,56 +748,72 @@ function thumb_format11(L, Rd, Word8, registers, definition)
 	--That way, we won't mess things up (probably)
 	local temp_array = registers
 	local CPSR = registers.CPSR
-	local return_string = "Format 11: SP-relative load/store: "
+	local return_string = {"Format 11: SP-relative load/store: ", ""}
 	local end_string = " Rd, [SP, #Imm]\nRd: "..Rd.." ("..hex(registers[Rd])..") SP: ("..hex(registers[7])..") Imm: "..Word8
 	--Format 11 shifts Word8 left by 2
-	local base = registers[7]
+	local base = registers[13]
 	local offset = Word8 * 4
 	local value = registers[Rd]
+	
+	local end_string2 = offset == 0 and "]" or ", #"..offset.."]"	--Probably should make a better name
+	
 	if L == 0 then	
 		--Add unsigned offset (255 words, 1020 bytes) in Imm to the current value of the SP (R7). Store the contents of Rd at the resulting address.
 		if definition ~= true then utility.STR(base, offset, value) end
-		return_string = return_string.."STR"..end_string
+		return_string[1] = return_string[1].."STR"..end_string
+		return_string[2] = "STR     r"..Rd..", [SP"..end_string2
 	elseif L == 1 then
 		--Add unsigned offset (255 words, 1020 bytes) in Imm to the current value of the SP (R7). Load the word from the resulting address into Rd.
 		temp_array[Rd] = utility.LDR(base, offset)
-		return_string = return_string.."LDR"..end_string
+		return_string[1] = return_string[1].."LDR"..end_string
+		return_string[2] = "LDR     r"..Rd..", [SP"..end_string2
 	else	--If for some reason you placed 2 or higher
-		return_string = "Format 11 error"
+		return_string[1] = "Format 11 error"
+		return_string[2] = return_string[1]
 	end
 	return temp_array, return_string
 end
 
 function thumb_format12(SP, Rd, Word8, registers)
 	local temp_array = registers
-	local return_string = "Format 12: load address: "
+	local return_string = {"Format 12: load address: ", ""}
+	Word8 = Word8 * 4
 	local end_string = " Rd, PC, #Imm\nRd: "..Rd.." ("..hex(registers[Rd])..") PC: ("..hex(registers[15])..") Imm: "..Word8
 	local end_string2 = " Rd, SP, #Imm\nRd: "..Rd.." ("..hex(registers[Rd])..") SP: ("..hex(registers[7])..") Imm: "..Word8
 	--Don't set condition codes!
 	if SP == 0 then
 		temp_array[Rd], _ = utility.ADD(registers[15], Word8, temp_array.CPSR)
-		return_string = return_string.."ADD"..end_string
+		return_string[1] = return_string[1].."ADD"..end_string
+		return_string[2] = "ADD     r"..Rd..", PC, #"..Word8
 	elseif SP == 1 then
 		temp_array[Rd], _ = utility.ADD(registers[7], Word8, temp_array.CPSR)
-		return_string = return_string.."ADD"..end_string2
+		return_string[1] = return_string[1].."ADD"..end_string2
+		return_string[2] = "ADD     r"..Rd..", SP, #"..Word8
 	else
-		return_string = "Format 12 error"
+		return_string[1] = "Format 12 error"
+		return_string[2] = return_string[1]
 	end
 	return temp_array, return_string
 end
 
-function thumb_format13(S, Sword7, registers)
+function thumb_format13(S, SWord7, registers)
 	local temp_array = registers
 	--Don't set condition codes!
-	local return_string = "Format 13: add offset to Stack Pointer: "
+	local return_string = {"Format 13: add offset to Stack Pointer: ", ""}
+	SWord7 = SWord7 * 4	-- Shift left by 2 bits to get a 8 bit constant + sign
 	if S == 0 then
 		temp_array[13], _ = utility.ADD(registers[13], SWord7, temp_array.CPSR)
-		return_string = return_string.."ADD SP, #Imm\nSP: ("..hex(registers[13])..")"
+		return_string[1] = return_string[1].."ADD SP, #Imm\nSP: ("..hex(registers[13])..")"
+		-- return_string[2] = "ADD     SP, #"..SWord7	--How manual displays it
+		return_string[2] = "ADD     SP, SP, #"..SWord7	--How VBA-next trace log shows it
 	elseif S == 1 then
 		temp_array[13], _ = utility.SUB(registers[13], SWord7, temp_array.CPSR)
-		return_string = return_string.."ADD SP, #-Imm\nSP: ("..hex(registers[13])..")"
+		return_string[1] = return_string[1].."ADD SP, #-Imm\nSP: ("..hex(registers[13])..")"
+		-- return_string[2] = "ADD     SP, #-"..SWord7
+		return_string[2] = "SUB     SP, SP #"..SWord7
 	else
-		return_string = "Format 13 error"
+		return_string[1] = "Format 13 error"
+		return_string[2] = return_string[1]
 	end
 	return temp_array, return_string
 end
@@ -907,66 +823,70 @@ function thumb_format14(L, R, RList, registers, definition)
 	--So we make a "definition" flag so that if its set, we dont write anything to memory
 	--That way, we won't mess things up (probably)
 	local temp_array = registers
-	local return_string = "Format 14: push/pop registers: "
+	local return_string = {"Format 14: push/pop registers: ", ""}
 	local OP = (L * 2) + R	--Left shift L once, then add R to combine them
 	local end_string = "\nBase: ("..hex(registers[13])..")"	--Register 13 is Link Register
 	local end_string2 = (L == 0) and ", SP}" or ", PC}"
-	--Setting the string here, so if definition is false, we can skip this
-	if (definition == true) then
-		end_string = end_string.." Registers: {"
-		for i = 0, 7 do
-		--its this, or ugly bit.check(RList, i)
-			if i < 7 then 
-				if bit.rshift(RList, i) % 2 == 1 then end_string = end_string..i..", " end
-			else
-				if bit.rshift(RList, i) % 2 == 1 then end_string = end_string..i end
-			end
+	--Find out which registers are in RList
+	local temp_list = {} 
+	for i = 0, 7 do
+		if bit.check(RList, i) then
+			temp_list[#temp_list+1] = i
 		end
-		end_string = (R == 1) and end_string..end_string2 or end_string.."}"
 	end
+	
+	local reg_string = "{"..utility.consec_number(temp_list)
+	reg_string = (R == 1) and reg_string..end_string2 or reg_string.."}"
+	end_string = end_string.." Registers: "..reg_string
+
 	if OP == 0 then
 		if definition ~= true then temp_array = PUSH(R, 13, RList, registers) end
-		return_string = return_string.."PUSH (push registers to stack)"..end_string
+		return_string[1] = return_string[1].."PUSH (push registers to stack)"..end_string
+		return_string[2] = "PUSH    "..reg_string
 	elseif OP == 1 then
 		if definition ~= true then temp_array = PUSH(R, 13, RList, registers) end
-		return_string = return_string.."PUSH (push registers + link register to stack)"..end_string
+		return_string[1] = return_string[1].."PUSH (push registers + link register to stack)"..end_string
+		return_string[2] = "PUSH    "..reg_string
 	elseif OP == 2 then
 		temp_array = POP(R, 13, RList, registers)
-		return_string = return_string.."POP (pop values in stack off to registers)"..end_string
+		return_string[1] = return_string[1].."POP (pop values in stack off to registers)"..end_string
+		return_string[2] = "POP    "..reg_string
 	elseif OP == 3 then
 		temp_array = POP(R, 13, RList, registers)
-		return_string = return_string.."POP (pop values in stack off to registers + program counter)"..end_string
+		return_string[1] = return_string[1].."POP (pop values in stack off to registers + program counter)"..end_string
+		return_string[2] = "POP    "..reg_string
 	else
-		return_string = "Format 14 error"
+		return_string[1] = "Format 14 error"
+		return_string[2] = return_string[1]
 	end
 	return temp_array, return_string
 end
 
 function thumb_format15(L, Rb, RList, registers, definition)
 	local temp_array = registers
-	local return_string = "Format 15: multiple load/store: "
+	local return_string = {"Format 15: multiple load/store: ", ""}
 	local end_string = "\nBase: "..Rb.." ("..hex(registers[Rb])..")"
-	--Setting the string here, so if definition is false, we can skip this
-	if (definition == true) then
-		end_string = end_string.." Registers: {"
-		for i = 0, 7 do
-		--its this, or ugly bit.check(RList, i)
-			if i < 7 then 
-				if bit.rshift(RList, i) % 2 == 1 then end_string = end_string..i..", " end
-			else
-				if bit.rshift(RList, i) % 2 == 1 then end_string = end_string..i end
-			end
+	--Find out which registers are in RList
+	local temp_list = {} 
+	for i = 0, 7 do
+		if bit.check(RList, i) then
+			temp_list[#temp_list+1] = i
 		end
-		end_string = end_string.."}"
 	end
+	
+	local reg_string = "{"..utility.consec_number(temp_list).."}"
+	
 	if L == 0 then
 		temp_array = PUSH(0, Rb, RList, registers)
-		return_string = return_string.."STMIA"..end_string
+		return_string[1] = return_string[1].."STMIA"..end_string
+		return_string[2] = "STMIA   r"..Rb.."!, "..reg_string
 	elseif L == 1 then --bit11 is 1
 		temp_array = POP(0, Rb, RList, registers)
-		return_string = return_string.."LDMIA"..end_string
+		return_string[1] = return_string[1].."LDMIA"..end_string
+		return_string[2] = "LDMIA   r"..Rb.."!, "..reg_string
 	else
-		return_string = "Format 15 error"
+		return_string[1] = "Format 15 error"
+		return_string[2] = return_string[1]
 	end
 	return temp_array, return_string
 end
@@ -974,66 +894,94 @@ end
 function thumb_format16(cond, Soffset8, registers)
 	local temp_array = registers
 	local CPSR = registers.CPSR
-	local return_string = "Format 16: conditional branch: "
+	local orig = registers[15]	--need to do this since it changes.
+	local dest = utility.B(Soffset8, registers[15], CPSR)
+	local branch = false
+	local return_string = {"Format 16: conditional branch: ", ""}
+	--Copied from B()
+	local result = Soffset8 * 2
+	if bit.check(result, 11) then
+		result = bit.bor(-4096,result)	--writing as 0xFFFF FFFF FFFF F000 doesn't work
+		--result = bit.bor(0xFFFFF000,result)	--This works too
+		result = result - 0x100000000	--??
+	end
 	if cond == 0 then
 	--Branch if Z set (equal)
-		temp_array[15] = BEQ(Soffset8, temp_array[15], CPSR)
-		return_string = return_string.."BEQ (branch if z == 1)"
+		branch = bit.check(CPSR, 30)
+		return_string[1] = return_string[1].."BEQ (branch if z == 1)"
+		return_string[2] = "BEQ     #+"..result
 	elseif cond ==  1 then
 	--Branch if Z clear (not equal)
-		temp_array[15] = BNE(Soffset8, temp_array[15], CPSR)
-		return_string = return_string.."BNE (branch if z == 0)"
+		branch = bit.check(CPSR, 30) == false
+		return_string[1] = return_string[1].."BNE (branch if z == 0)"
+		return_string[2] = "BNE     #+"..result
 	elseif cond == 2 then
 	--Branch if C set (unsigned higher or same)
-		temp_array[15] = BCS(Soffset8, temp_array[15], CPSR)
-		return_string = return_string.."BCS (branch if c == 1)"
+		branch = bit.check(CPSR, 29)
+		return_string[1] = return_string[1].."BCS (branch if c == 1)"
+		return_string[2] = "BCS     #+"..result
 	elseif cond == 3 then
 	--Branch if C clear (unsigned lower)
-		temp_array[15] = BCC(Soffset8, temp_array[15], CPSR)
-		return_string = return_string.."BCC (branch if c == 0)"
+		branch = bit.check(CPSR, 29) == false
+		return_string[1] = return_string[1].."BCC (branch if c == 0)"
+		return_string[2] = "BCC     #+"..result
 	elseif cond == 4 then
 	--Branch if N set (negative)
-		temp_array[15] = BMI(Soffset8, temp_array[15], CPSR)
-		return_string = return_string.."BMI (branch if n == 1)"
+		branch = bit.check(CPSR, 31)
+		return_string[1] = return_string[1].."BMI (branch if n == 1)"
+		return_string[2] = "BMI     #+"..result
 	elseif cond == 5 then
 	--Branch if N clear (positive or zero)
-		temp_array[15] = BPL(Soffset8, temp_array[15], CPSR)
-		return_string = return_string.."BPL (branch if n == 0)"
+		branch = bit.check(CPSR, 31) == false
+		return_string[1] = return_string[1].."BPL (branch if n == 0)"
+		return_string[2] = "BPL     #+"..result
 	elseif cond == 6 then
 	--Branch if V set (overflow)
-		temp_array[15] = BVS(Soffset8, temp_array[15], CPSR)
-		return_string = return_string.."BVS (branch if v == 1)"
+		branch = bit.check(CPSR, 28)
+		return_string[1] = return_string[1].."BVS (branch if v == 1)"
+		return_string[2] = "BVS     #+"..result
 	elseif cond == 7 then
 	--Branch if V clear (no overflow)
-		temp_array[15] = BVC(Soffset8, temp_array[15], CPSR)
-		return_string = return_string.."BVC (branch if v == 0)"
+		branch = bit.check(CPSR, 28) == false
+		return_string[1] = return_string[1].."BVC (branch if v == 0)"
+		return_string[2] = "BVC     #+"..result
 	elseif cond == 8 then
 	--Branch if C set and Z clear (unsigned higher)
-		temp_array[15] = BHI(Soffset8, temp_array[15], CPSR)
-		return_string = return_string.."BHI (branch if c == 1 and z == 0)"
+		branch = bit.check(CPSR, 29) and bit.check(CPSR, 30) == false
+		return_string[1] = return_string[1].."BHI (branch if c == 1 and z == 0)"
+		return_string[2] = "BHI     #+"..result
 	elseif cond == 9 then
 	--Branch if C clear or Z set (unsigned lower or same)
-		temp_array[15] = BLS(Soffset8, temp_array[15], CPSR)
-		return_string = return_string.."BLS (branch if c == 0 and z == 1)"
+		branch = bit.check(CPSR, 29) == false and bit.check(CPSR, 30)
+		return_string[1] = return_string[1].."BLS (branch if c == 0 and z == 1)"
+		return_string[2] = "BLS     #+"..result
 	elseif cond == 10 then
 	--Branch if N set and V set, or N clear and V clear (greater or equal)
-		temp_array[15] = BGE(Soffset8, temp_array[15], CPSR)
-		return_string = return_string.."BGE (branch if n == v)"
+		branch = bit.check(CPSR, 28) == bit.check(CPSR, 31)
+		return_string[1] = return_string[1].."BGE (branch if n == v)"
+		return_string[2] = "BGE     #+"..result
 	elseif cond == 11 then
 	--Branch if N set and V clear, or N clear and V set (less than)
-		temp_array[15] = BLT(Soffset8, temp_array[15], CPSR)
-		return_string = return_string.."BLT (branch if n != v)"
+		branch = bit.check(CPSR, 28) ~= bit.check(CPSR, 31)
+		return_string[1] = return_string[1].."BLT (branch if n != v)"
+		return_string[2] = "BLT     #+"..result
 	elseif cond == 12 then
 	--Branch if Z clear, and either N set and V set or N clear and V clear (greater than)
-		temp_array[15] = BGT(Soffset8, temp_array[15], CPSR)
-		return_string = return_string.."BGT (branch if z == 0 and n == v)"
+		branch = bit.check(CPSR, 30) == false and (bit.check(CPSR, 28) == bit.check(CPSR, 31))
+		return_string[1] = return_string[1].."BGT (branch if z == 0 and n == v)"
+		return_string[2] = "BGT     #+"..result
 	elseif cond == 13 then
 	-- Branch if Z set, or N set and V clear, or N clear and V set (less than or equal)
-		temp_array[15] = BLE(Soffset8, temp_array[15], CPSR)
-		return_string = return_string.."BLE (branch if z == 1 or n != v)"
+		branch = bit.check(CPSR, 30) or (bit.check(CPSR, 28) ~= bit.check(CPSR, 31))
+		return_string[1] = return_string[1].."BLE (branch if z == 1 or n != v)"
+		return_string[2] = "BLE     #+"..result
 	else
-		return_string = "Format 16 error"
+		return_string[1] = "Format 16 error"
+		return_string[2] = return_string[1]
 	end
+	temp_array[15] = branch and dest or orig	--Branch
+	-- Output what the 2 possible branching addresses
+	return_string[1] = return_string[1].."\nTrue: 0x "..hex(dest + 2).." False: 0x " ..hex(orig + 2)
 	return temp_array, return_string
 end
 
@@ -1046,22 +994,34 @@ end
 
 function thumb_format18(Offset11, registers)
 	local temp_array = registers
-	temp_array[15] = B(Offset11, temp_array[15])
-	return_string = "Format 18: unconditional branch: Uncond. Jump\nOffset: "..Offset11
+	local CPSR = registers.CPSR
+	local dest = utility.B(Offset11, temp_array[15], CPSR)
+	temp_array[15] = dest
+	--Copied from B()
+	local result = Soffset8 * 2
+	if bit.check(result, 11) then
+		result = bit.bor(-4096,result)	--writing as 0xFFFF FFFF FFFF F000 doesn't work
+		--result = bit.bor(0xFFFFF000,result)	--This works too
+		result = result - 0x100000000	--??
+	end
+	local return_string = {"Format 18: unconditional branch: Uncond. Jump\nOffset: 0x"..hex(Offset11), ""}
+	return_string[1] = return_string[1].."\nBranch to: 0x "..hex(dest+2)
+	return_string[2] = "B       #+"..result
 	return temp_array, return_string
 end
 
 function thumb_format19(H, Offset, registers)
 	local temp_array = registers
-	local return_string = "Format 19: long branch with link: "
+	local return_string = {"Format 19: long branch with link: ", ""}
 	temp_array[14], temp_array[15] = BL(Offset, registers[14], registers[15], H)
 	if H == 0 then
-		return_string = return_string.."Jump + LR := PC + OffsetHigh << 12"
+		return_string[1] = return_string[1].."Jump + LR := PC + OffsetHigh << 12"
 	elseif H == 1 then --bit 11 is 1
-		return_string = return_string.."Jump + temp := next instruction address; PC := LR + OffsetLow << 1; LR := temp | 1"
+		return_string[1] = return_string[1].."Jump + temp := next instruction address; PC := LR + OffsetLow << 1; LR := temp | 1"
 	else
-		return_string = "Format 19 error"
+		return_string[1] = "Format 19 error"
 	end
+	return_string[2] = return_string[1]
 	return temp_array, return_string
 end
 
@@ -1165,7 +1125,7 @@ function asm_thumb_module.do_instr(instruction, registers, definition)
 			local bit8 = bit.check(instruction,8) and 1 or 0
 			local SWord7 = bit.band(0x7F,instruction)	--binary 0011 1111
 			if (bit10 == 0 ) then
-				temp_array, return_string = thumb_format13(bit7, Sword7, registers)
+				temp_array, return_string = thumb_format13(bit7, SWord7, registers)
 			else
 				temp_array, return_string = thumb_format14(bit11, bit8, Offset8, registers, definition)
 			end			
