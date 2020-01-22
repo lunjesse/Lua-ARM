@@ -998,7 +998,7 @@ function thumb_format18(Offset11, registers)
 	local dest = utility.B(Offset11, temp_array[15], CPSR)
 	temp_array[15] = dest
 	--Copied from B()
-	local result = Soffset8 * 2
+	local result = Offset11 * 2
 	if bit.check(result, 11) then
 		result = bit.bor(-4096,result)	--writing as 0xFFFF FFFF FFFF F000 doesn't work
 		--result = bit.bor(0xFFFFF000,result)	--This works too
