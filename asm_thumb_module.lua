@@ -1,4 +1,5 @@
 local hex = bizstring.hex
+local format = string.format
 local utility = require('utility')
 local asm_thumb_module = {}
 
@@ -35,11 +36,16 @@ end
 function BL(offset,LR,PC,H_flag)
 	--don't set flags
 	--long branch with link
-	for i = 11,15 do
-		offset = bit.clear(offset,i)
-	end
 	if H_flag == 0 then
-		return PC + bit.lshift(offset,12) + 2, PC
+		-- console.log(hex(bit.lshift(offset,12)))
+		--only sign extend if H is 0
+		local signed = bit.check(offset,10)
+		if signed then
+			offset = bit.bor(-2048,offset)	-- This is FFFF F800 in doubleword
+		end
+		local r14 = PC + bit.lshift(offset,12) + 2
+		r14 = signed and r14 - 0x100000000 or r14	--sign extend messes bit 32 up
+		return r14, PC
 	else
 		local temp = PC
 		return bit.bor(temp,1), bit.lshift(offset,1) + LR
@@ -826,7 +832,7 @@ function thumb_format14(L, R, RList, registers, definition)
 	local return_string = {"Format 14: push/pop registers: ", ""}
 	local OP = (L * 2) + R	--Left shift L once, then add R to combine them
 	local end_string = "\nBase: ("..hex(registers[13])..")"	--Register 13 is Link Register
-	local end_string2 = (L == 0) and ", SP}" or ", PC}"
+	local end_string2 = (L == 0) and ", LR}" or ", PC}"
 	--Find out which registers are in RList
 	local temp_list = {} 
 	for i = 0, 7 do
@@ -895,13 +901,16 @@ function thumb_format16(cond, Soffset8, registers)
 	local temp_array = registers
 	local CPSR = registers.CPSR
 	local orig = registers[15]	--need to do this since it changes.
-	local dest = utility.B(Soffset8, registers[15], CPSR)
+	local result = Soffset8 * 2
+	if bit.check(result, 8) then 
+		result = result + 0x600	--set bits 9, 10 to 1
+	end
+	local dest = utility.B1(Soffset8, registers[15])
 	local branch = false
 	local return_string = {"Format 16: conditional branch: ", ""}
-	--Copied from B()
-	local result = Soffset8 * 2
-	if bit.check(result, 11) then
-		result = bit.bor(-4096,result)	--writing as 0xFFFF FFFF FFFF F000 doesn't work
+	--Copied from B1()
+	if bit.check(result, 8) then	--Check 8th bit
+		result = bit.bor(-256,result)	--writing as 0xFFFF FFFF FFFF FE00 doesn't work
 		--result = bit.bor(0xFFFFF000,result)	--This works too
 		result = result - 0x100000000	--??
 	end
@@ -952,8 +961,8 @@ function thumb_format16(cond, Soffset8, registers)
 		return_string[2] = "BHI     #+"..result
 	elseif cond == 9 then
 	--Branch if C clear or Z set (unsigned lower or same)
-		branch = bit.check(CPSR, 29) == false and bit.check(CPSR, 30)
-		return_string[1] = return_string[1].."BLS (branch if c == 0 and z == 1)"
+		branch = bit.check(CPSR, 29) == false or bit.check(CPSR, 30)
+		return_string[1] = return_string[1].."BLS (branch if c == 0 or z == 1)"
 		return_string[2] = "BLS     #+"..result
 	elseif cond == 10 then
 	--Branch if N set and V set, or N clear and V clear (greater or equal)
@@ -979,6 +988,7 @@ function thumb_format16(cond, Soffset8, registers)
 		return_string[1] = "Format 16 error"
 		return_string[2] = return_string[1]
 	end
+	
 	temp_array[15] = branch and dest or orig	--Branch
 	-- Output what the 2 possible branching addresses
 	return_string[1] = return_string[1].."\nTrue: 0x "..hex(dest + 2).." False: 0x " ..hex(orig + 2)
@@ -995,7 +1005,7 @@ end
 function thumb_format18(Offset11, registers)
 	local temp_array = registers
 	local CPSR = registers.CPSR
-	local dest = utility.B(Offset11, temp_array[15], CPSR)
+	local dest = utility.B2(Offset11, temp_array[15], CPSR)
 	temp_array[15] = dest
 	--Copied from B()
 	local result = Offset11 * 2
@@ -1016,12 +1026,14 @@ function thumb_format19(H, Offset, registers)
 	temp_array[14], temp_array[15] = BL(Offset, registers[14], registers[15], H)
 	if H == 0 then
 		return_string[1] = return_string[1].."Jump + LR := PC + OffsetHigh << 12"
+		return_string[2] = "BL      0x"..("%08X"):format(temp_array[15])
 	elseif H == 1 then --bit 11 is 1
 		return_string[1] = return_string[1].."Jump + temp := next instruction address; PC := LR + OffsetLow << 1; LR := temp | 1"
+		return_string[2] = "BL2     0x"..("%08X"):format(temp_array[15])
 	else
 		return_string[1] = "Format 19 error"
+		return_string[2] = return_string[1]
 	end
-	return_string[2] = return_string[1]
 	return temp_array, return_string
 end
 
@@ -1032,13 +1044,12 @@ function asm_thumb_module.do_instr(instruction, registers, definition)
 	--That way, we won't mess things up (probably)
 	--https://ece.uwaterloo.ca/~ece222/ARM/ARM7-TDMI-manual-pt3.pdf
 	--Thumb instruction set
-	local bits_3 = bit.rshift(instruction,13)	--check the first 3 left bits
 	--for format 5:  Hi register operations/branch exchange
 	local bit7 = bit.check(instruction,7) and 1 or 0
 	local bit10 = bit.check(instruction,10) and 1 or 0
 	local bit11 = bit.check(instruction,11) and 1 or 0
 	local bit12 = bit.check(instruction,12) and 1 or 0
-	local bit_12_11 = bit.rshift(bit.band(0x1800,instruction),11)	--binary 0001 1000 0000 0000
+	local OP = bit.rshift(bit.band(0x1800,instruction),11)	--binary 0001 1000 0000 0000
 	--We'll also treat Rs as Rb in the pdf
 	local Rs = bit.rshift(bit.band(0x38,instruction),3)	--0x38 is 111000 in binary, and it to get only bits 3,4,5, then right shift them to obtain rs
 	--Rd appears in 2 different locations in the pdf. We'll use Rd1 as the one for bits 0,1,2
@@ -1051,117 +1062,80 @@ function asm_thumb_module.do_instr(instruction, registers, definition)
 	local Offset5 = bit.rshift(bit.band(0x7C0,instruction),6) --bits 6,7,8,9,10; binary 111 1100 0000
 	--Used in formats 3, 6, 11, 12, 14, 15, 16, 17
 	local Offset8 = bit.band(0xFF,instruction)	--binary 0111 1111
+	local Offset11 = bit.band(0x7FF,instruction)	--binary 0111 1111 1111
+	
 	local temp_array = {}
 	local return_string = ""
-	-- local CPSR = registers.CPSR
-	-- local C = bit.check(CPSR, 29) and 1 or 0
 	--Cannot use ternary operator trick "cond and a or b" to return 2 values sadly
-	if bits_3 == 0 then --bit pattern 000
-	--Format 2 has bits 12 and 11 == 0b11 (3 in decimal). So if they're not 3, use format 1 instead
-	--Format 1: move shifted register
-	--Format 2: add/subtract
-	-- local Rn = Ro
-		local bit_10_9 = bit.rshift(bit.band(0x600,instruction),9)	--binary 0110 0000 0000
-		if (bit_12_11 == 3) then 
-			temp_array, return_string = thumb_format2(bit_10_9, Rd, Rs, Ro, registers)
-		else
-			temp_array, return_string = thumb_format1(bit_12_11, Rd, Rs, Offset5, registers)
-		end
-	elseif bits_3 == 1 then --bit pattern 001
-	--Format 3
-		temp_array, return_string = thumb_format3(bit_12_11, Rd2, Offset8, registers)
-	elseif bits_3 == 2 then --bit pattern 010
-	--Format 4
-		local bit_12_11_10 = bit.rshift(bit.band(0x1C00,instruction),10)	--binary 0001 1100 0000 0000
-		if bit_12_11_10 == 0 then
-			local bit_9_8_7_6 = bit.rshift(bit.band(0x3C0,instruction),6)	--binary 0011 1100 0000
-			temp_array, return_string = thumb_format4(bit_9_8_7_6, Rs, Rd, registers)
-		elseif bit_12_11_10 == 1 then
-		--Format 5
-		--Don't set condition codes on R15/PC!
-		--Hd/Hs are used nowhere else, so assign them herelocal h1 = bit7
-			local bit_9_8 = bit.rshift(bit.band(0x300,instruction),8)	--binary 0011 0000 0000
-			local h2 = bit.check(instruction,6) and 1 or 0
-			temp_array, return_string = thumb_format5(bit_9_8, bit7, h2, Rs, Rd, registers)
-		elseif bit_12_11_10 == 2 or bit_12_11_10 == 3 then	--binary 010
-		--Format 6: PC-relative load
-		--Don't increment PC here
-		--Word8 == Offset8
-			temp_array, return_string = thumb_format6(Rd2, Offset8, registers)
-		elseif bit_12_11_10 >= 4 and bit_12_11_10 <= 7 then	--bit12 is 1
-			--If bit 9 == 0, format 7. Else format 8
-			--Format 7: load/store with register offset
-			--Format 8: load/store sign-extended byte/halfword
-			local bit9 = bit.check(instruction,9) and 1 or 0
-			if (bit9 == 0) then
-				temp_array, return_string = thumb_format7(bit11, bit10, Ro, Rb1, Rd, registers, definition)
-			else
-				temp_array, return_string = thumb_format8(bit11, bit10, Ro, Rb1, Rd, registers, definition)
-			end
-		end
-	elseif bits_3 == 3 then --bit pattern 011
-		-- Format 9: load/store with immediate offset
-		temp_array, return_string = thumb_format9(bit12, bit11, Offset5, Rb1, Rd, registers, definition)
-	elseif bits_3 == 4 then --bit pattern 100
-		--Check bit 12 to see if we use format 10 or 11. 0 for format 10, 1 for format 11
-		--Format 10: load/store halfword
-		--Format 11: SP-relative load/store
-		-- local Word8 = Offset8	--binary 0111 1111
-		if (bit12 == 0) then
-			temp_array, return_string = thumb_format10(bit11, Offset5, Rb1, Rd, registers, definition)
-		else
-			temp_array, return_string = thumb_format11(bit11, Rd2, Offset8, registers, definition)
-		end	
-	elseif bits_3 == 5 then --bit pattern 101
-		if bit12 == 0 then
-		--Format 12: load address
-		-- local Word8 = Offset8	--binary 0111 1111
-			temp_array, return_string = thumb_format12(bit11, Rd2, Offset8, registers)
-		else --bit12 is 1 
-		--Check bit 10 to see if we use format 13 or 14. 0 for format 13, 1 for format 14
-		--Format 13: add offset to Stack Pointer
-		--Format 14: push/pop registers
-		-- local RList = Offset8	--binary 0111 1111
-			local bit8 = bit.check(instruction,8) and 1 or 0
-			local SWord7 = bit.band(0x7F,instruction)	--binary 0011 1111
-			if (bit10 == 0 ) then
-				temp_array, return_string = thumb_format13(bit7, SWord7, registers)
-			else
-				temp_array, return_string = thumb_format14(bit11, bit8, Offset8, registers, definition)
-			end			
-		end
-	elseif bits_3 == 6 then --bit pattern 101
-		if bit12 == 0 then
-		--Format 15: multiple load/store
-		-- local Rb2 = Rd2 bits 10_9_8
-		-- local RList = Offset8	--binary 0111 1111
-			temp_array, return_string = thumb_format15(bit11, Rd2, Offset8, registers, definition)
-		else --bit12 is 1
-		--Check if bits 11, 10, 9, 8 are all 1 (ie. cond == 15) to see if we use format 16 or 17. 15 for format 17, all else for format 16
-		--Format 16: conditional branch
-		--Format 17: software interrupt
-		-- local Value8 = Offset8	--binary 0111 1111
-		-- local Soffset8 = Offset8	--binary 0111 1111
-			local bit_11_10_9_8 = bit.rshift(bit.band(0xF00,instruction),8)	--binary 1111 0000 0000
-			if (bit_11_10_9_8 == 15) then
-				temp_array, return_string = thumb_format17(Offset8, registers)
-			else
-				temp_array, return_string = thumb_format16(bit_11_10_9_8, Offset8, registers)
-			end
-		end
-	elseif bits_3 == 7 then --bit pattern 111
-		--Check bit 12 to see if we use format 18 or 19. 0 for format 18, 1 for format 19
-		--Format 18: unconditional branch
-		--Format 19: long branch with link
-		local Offset11 = bit.band(0x7FF,instruction)	--binary 0111 1111 1111
-		if (bit12 == 0) then
-			temp_array, return_string = thumb_format18(Offset11, registers)
-		else
-			temp_array, return_string = thumb_format19(bit11, Offset11, registers)
-		end
-	else
+	local format_num = asm_thumb_module.get_format(instruction)
+	
+	if format_num == 0 then 
 		return_string = "Undef"
+	elseif format_num == 1 then	--Format 1: move shifted register
+		temp_array, return_string = thumb_format1(OP, Rd, Rs, Offset5, registers)
+		
+	elseif format_num == 2 then	--Format 2: add/subtract
+		local bit_10_9 = bit.rshift(bit.band(0x600,instruction),9)	--binary 0110 0000 0000
+		temp_array, return_string = thumb_format2(bit_10_9, Rd, Rs, Ro, registers)
+		
+	elseif format_num == 3 then	--Format 3: move/compare/add/subtract immediate
+		temp_array, return_string = thumb_format3(OP, Rd2, Offset8, registers)
+		
+	elseif format_num == 4 then	--Format 4
+		local bit_9_8_7_6 = bit.rshift(bit.band(0x3C0,instruction),6)	--binary 0011 1100 0000
+		temp_array, return_string = thumb_format4(bit_9_8_7_6, Rs, Rd, registers)
+		
+	elseif format_num == 5 then	--Format 5
+		local bit_9_8 = bit.rshift(bit.band(0x300,instruction),8)	--binary 0011 0000 0000
+		local h2 = bit.check(instruction,6) and 1 or 0
+		temp_array, return_string = thumb_format5(bit_9_8, bit7, h2, Rs, Rd, registers)
+		
+	elseif format_num == 6 then	--Format 6: PC-relative load
+		temp_array, return_string = thumb_format6(Rd2, Offset8, registers)
+		
+	elseif format_num == 7 then	--Format 7: load/store with register offset
+		temp_array, return_string = thumb_format7(bit11, bit10, Ro, Rb1, Rd, registers, definition)
+		
+	elseif format_num == 8 then	--Format 8: load/store sign-extended byte/halfword
+		temp_array, return_string = thumb_format8(bit11, bit10, Ro, Rb1, Rd, registers, definition)
+		
+	elseif format_num == 9 then	-- Format 9: load/store with immediate offset
+		temp_array, return_string = thumb_format9(bit12, bit11, Offset5, Rb1, Rd, registers, definition)
+		
+	elseif format_num == 10 then--Format 10: load/store halfword
+		temp_array, return_string = thumb_format10(bit11, Offset5, Rb1, Rd, registers, definition)
+	
+	elseif format_num == 11 then--Format 11: SP-relative load/store
+		temp_array, return_string = thumb_format11(bit11, Rd2, Offset8, registers, definition)
+		
+	elseif format_num == 12 then--Format 12: load address
+		temp_array, return_string = thumb_format12(bit11, Rd2, Offset8, registers)
+		
+	elseif format_num == 13 then--Format 13: add offset to Stack Pointer
+		local SWord7 = bit.band(0x7F,instruction)	--binary 0011 1111
+		temp_array, return_string = thumb_format13(bit7, SWord7, registers)
+			
+	elseif format_num == 14 then--Format 14: push/pop registers
+		local bit8 = bit.check(instruction,8) and 1 or 0
+		temp_array, return_string = thumb_format14(bit11, bit8, Offset8, registers, definition)
+		
+	elseif format_num == 15 then--Format 15: multiple load/store
+		temp_array, return_string = thumb_format15(bit11, Rd2, Offset8, registers, definition)
+		
+	elseif format_num == 16 then--Format 16: conditional branch
+		local bit_11_10_9_8 = bit.rshift(bit.band(0xF00,instruction),8)	--binary 1111 0000 0000
+		temp_array, return_string = thumb_format16(bit_11_10_9_8, Offset8, registers)
+		
+	elseif format_num == 17 then--Format 17: software interrupt
+		temp_array, return_string = thumb_format17(Offset8, registers)
+		
+	elseif format_num == 18 then--Format 18: unconditional branch
+		temp_array, return_string = thumb_format18(Offset11, registers)
+		
+	elseif format_num == 19 then--Format 19: long branch with link
+		temp_array, return_string = thumb_format19(bit11, Offset11, registers)
 	end
+	
 	temp_array[15] = temp_array[15] + 2
 	return temp_array, return_string
 end
@@ -1173,27 +1147,113 @@ function asm_thumb_module.get_thumb_instr(instruction, registers)
 	return return_string
 end
 --[[
-Try checking bits 15-12, then branch from there. 13 Outer branches
-15	14	13	12				4 bit number
-0	0	0	X	Format 1	0 or 1
-0	0	0	1	Format 2	1
-0	0	1	X	Format 3	2 or 3
-0	1	0	0	Format 4	4
-0	1	0	0	Format 5	4
-0	1	0	0	Format 6	4
-0	1	0	1	Format 7	5
-0	1	0	1	Format 8	5
-0	1	1	X	Format 9	6 or 7
-1	0	0	0	Format 10	8
-1	0	0	1	Format 11	9
-1	0	1	0	Format 12	10
-1	0	1	1	Format 13	11
-1	0	1	1	Format 14	11
-1	1	0	0	Format 15	12
-1	1	0	1	Format 16	13
-1	1	0	1	Format 17	13
-1	1	1	0	Format 18	14
-1	1	1	1	Format 19	15
+Try checking bits 15-11, then branch from there.
+15	14	13	12	11				4 bit number
+0	0	0	0	0	Format 1	0
+0	0	0	0	1	Format 1	1
+0	0	0	1	0	Format 1	2
+0	0	0	1	1	Format 2	3
+0	0	1	0	0	Format 3	4
+0	0	1	0	1	Format 3	5
+0	0	1	1	0	Format 3	6
+0	0	1	1	1	Format 3	7
+0	1	0	0	0	Format 4	8 	(bit 10 = 0)
+0	1	0	0	0	Format 5	8 	(bit 10 = 1)
+0	1	0	0	1	Format 6	9
+0	1	0	1	0	Format 7	10	(bit 9 = 0)
+0	1	0	1	0	Format 8	10	(bit 9 = 1)
+0	1	0	1	1	Format 7	11	(bit 9 = 0)
+0	1	0	1	1	Format 8	11	(bit 9 = 1)
+0	1	1	0	0	Format 9	12
+0	1	1	0	1	Format 9	13
+0	1	1	1	0	Format 9	14
+0	1	1	1	1	Format 9	15
+1	0	0	0	0	Format 10	16
+1	0	0	0	1	Format 10	17
+1	0	0	1	0	Format 11	18
+1	0	0	1	1	Format 11	19
+1	0	1	0	0	Format 12	20
+1	0	1	0	1	Format 12	21
+1	0	1	1	0	Format 13	22 (bit 10 = 0)
+1	0	1	1	0	Format 14	22 (bit 10 = 1)
+1	0	1	1	1	Format 14	23
+1	1	0	0	0	Format 15	24
+1	1	0	0	1	Format 15	25
+1	1	0	1	0	Format 16	26
+1	1	0	1	1	Format 16	27
+1	1	0	1	1	Format 17	27	(bit 11,10,9,8 = 0b1111)
+1	1	1	0	0	Format 18	28
+1	1	1	0	1	Undef		29
+1	1	1	1	0	Format 19	30
+1	1	1	1	1	Format 19	31
 ]]--
+function asm_thumb_module.get_format(instruction)
+	--For all other formats, you can just fake it by ignore temp_array.
+	--So we make a "definition" flag so that if its set, we dont write anything to memory
+	--That way, we won't mess things up (probably)
+	--https://ece.uwaterloo.ca/~ece222/ARM/ARM7-TDMI-manual-pt3.pdf
+	--Thumb instruction set
+	local bit9 = bit.check(instruction, 9)
+	local bit10 = bit.check(instruction, 10)
+	local bit11_10_9_8 = bit.rshift(bit.band(0xF00, instruction), 8)			--binary 0000 1111 0000 0000
+	local bit_15_14_13_12_11 = bit.rshift(bit.band(0xF800,instruction), 11)	--binary 1111 1000 0000 0000
+
+	if bit_15_14_13_12_11 == 0 then return 1 end	-- 0	0	0	0	0	Format 1	0
+	if bit_15_14_13_12_11 == 1 then return 1 end	-- 0	0	0	0	1	Format 1	1
+	if bit_15_14_13_12_11 == 2 then return 1 end	-- 0	0	0	1	0	Format 1	2
+	
+	if bit_15_14_13_12_11 == 3 then return 2 end	-- 0	0	0	1	1	Format 2	3
+	
+	if bit_15_14_13_12_11 == 4 then return 3 end	-- 0	0	1	0	0	Format 3	4
+	if bit_15_14_13_12_11 == 5 then return 3 end	-- 0	0	1	0	1	Format 3	5
+	if bit_15_14_13_12_11 == 6 then return 3 end	-- 0	0	1	1	0	Format 3	6
+	if bit_15_14_13_12_11 == 7 then return 3 end	-- 0	0	1	1	1	Format 3	7
+	-- 0	1	0	0	0	Format 4	8 	(bit 10 = 0)
+	-- 0	1	0	0	0	Format 5	8 	(bit 10 = 1)
+	if bit_15_14_13_12_11 == 8 then return bit10 and 5 or 4 end
+	
+	if bit_15_14_13_12_11 == 9 then return 6 end	-- 0	1	0	0	1	Format 6	9
+	-- 0	1	0	1	0	Format 7	10	(bit 9 = 0)
+	-- 0	1	0	1	0	Format 8	10	(bit 9 = 1)
+	if bit_15_14_13_12_11 == 10 then return bit9 and 8 or 7 end
+	-- 0	1	0	1	1	Format 7	11	(bit 9 = 0)
+	-- 0	1	0	1	1	Format 8	11	(bit 9 = 1)
+	if bit_15_14_13_12_11 == 11 then return bit9 and 8 or 7 end
+	
+	if bit_15_14_13_12_11 == 12 then return 9 end	-- 0	1	1	0	0	Format 9	12
+	if bit_15_14_13_12_11 == 13 then return 9 end	-- 0	1	1	0	1	Format 9	13
+	if bit_15_14_13_12_11 == 14 then return 9 end	-- 0	1	1	1	0	Format 9	14
+	if bit_15_14_13_12_11 == 15 then return 9 end	-- 0	1	1	1	1	Format 9	15
+	
+	if bit_15_14_13_12_11 == 16 then return 10 end	-- 1	0	0	0	0	Format 10	16
+	if bit_15_14_13_12_11 == 17 then return 10 end	-- 1	0	0	0	1	Format 10	17
+	
+	if bit_15_14_13_12_11 == 18 then return 11 end	-- 1	0	0	1	0	Format 11	18
+	if bit_15_14_13_12_11 == 19 then return 11 end	-- 1	0	0	1	1	Format 11	19
+
+
+	if bit_15_14_13_12_11 == 20 then return 12 end	-- 1	0	1	0	0	Format 12	20
+	if bit_15_14_13_12_11 == 21 then return 12 end	-- 1	0	1	0	1	Format 12	21
+	-- 1	0	1	1	0	Format 13	22 (bit 10 = 0)
+	-- 1	0	1	1	0	Format 14	22 (bit 10 = 1)
+	if bit_15_14_13_12_11 == 22 then return bit10 and 14 or 13 end
+	
+	if bit_15_14_13_12_11 == 23 then return 14 end	-- 1	0	1	1	1	Format 14	23
+	
+	if bit_15_14_13_12_11 == 24 then return 15 end	-- 1	1	0	0	0	Format 15	24
+	if bit_15_14_13_12_11 == 25 then return 15 end	-- 1	1	0	0	1	Format 15	25
+	
+	if bit_15_14_13_12_11 == 26 then return 16 end	-- 1	1	0	1	0	Format 16	26
+	-- 1	1	0	1	1	Format 16	27
+	-- 1	1	0	1	1	Format 17	27	(bit 11,10,9,8 = 0b1111)
+	if bit_15_14_13_12_11 == 27 then return bit11_10_9_8 == 0xF and 17 or 16 end
+
+	if bit_15_14_13_12_11 == 28 then return 18 end	-- 1	1	1	0	0	Format 18	28
+
+	if bit_15_14_13_12_11 == 29 then return 0 end -- 1	1	1	0	1	Undef		29
+
+	if bit_15_14_13_12_11 == 30 then return 19 end	-- 1	1	1	1	0	Format 19	30
+	if bit_15_14_13_12_11 == 31 then return 19 end	-- 1	1	1	1	1	Format 19	31
+end
 
 return asm_thumb_module
